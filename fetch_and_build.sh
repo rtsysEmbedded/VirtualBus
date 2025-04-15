@@ -28,7 +28,7 @@ BUILD_TYPE="Release"
 # Create necessary directories
 mkdir -p $EXTERNAL_DIR
 mkdir -p $INSTALL_DIR
-
+ls $EXTERNAL_DIR
 rm -rf $OPENSSL_DIR
 
 rm -rf $MQTT_C_DIR
@@ -37,6 +37,7 @@ rm -rf $MQTT_CPP_DIR
 
 rm -rf $SPDLOG_DIR
 
+ls $EXTERNAL_DIR
     # Check if OpenSSL directory exists, if not, clone and build it
 # if [ ! -d "$OPENSSL_DIR" ]; then
 #     echo "Cloning OpenSSL repository..."
