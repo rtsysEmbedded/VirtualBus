@@ -29,7 +29,15 @@ BUILD_TYPE="Release"
 mkdir -p $EXTERNAL_DIR
 mkdir -p $INSTALL_DIR
 
-# Check if OpenSSL directory exists, if not, clone and build it
+rm -rf $OPENSSL_DIR
+
+rm -rf $MQTT_C_DIR
+
+rm -rf $MQTT_CPP_DIR
+
+rm -rf $SPDLOG_DIR
+
+    # Check if OpenSSL directory exists, if not, clone and build it
 # if [ ! -d "$OPENSSL_DIR" ]; then
 #     echo "Cloning OpenSSL repository..."
 #     git clone https://github.com/openssl/openssl.git $OPENSSL_DIR
