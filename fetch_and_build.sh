@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Set the absolute path to your cross-compilers
-CROSS_COMPILE_PATH=/home/ubuntu/Tools/arm-none-linux-gnueabihf-10.02/bin/     # Modify this to the correct path
+#CROSS_COMPILE_PATH=/home/ubuntu/Tools/arm-none-linux-gnueabihf-10.02/bin/     # Modify this to the correct path
 CROSS_COMPILE=arm-none-linux-gnueabihf-  # Modify this if your toolchain has a different prefix
 
 # Set the compilers and linker explicitly
