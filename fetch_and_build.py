@@ -1,38 +1,95 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 import os
 import subprocess
+import platform
+from pathlib import Path
 
+class BuildSystem:
+    def __init__(self):
+        # Cross compilation settings
+        self.cross_compile_path = "/home/ubuntu/Tools/arm-none-linux-gnueabihf-10.02/bin/"
+        self.cross_compile = "arm-none-linux-gnueabihf-"
+        
+        # Set compilers
+        self.cc = os.path.join(self.cross_compile_path, f"{self.cross_compile}gcc")
+        self.cxx = os.path.join(self.cross_compile_path, f"{self.cross_compile}g++")
+        self.ld = os.path.join(self.cross_compile_path, f"{self.cross_compile}ld")
+    
+    # Get the absolute path of the project directory (where fetch_and_build.py is located)
+        self.project_path = Path(os.path.dirname(os.path.abspath(__file__)))
+        print(f"Project path detected as: {self.project_path}")
+    
+    # Directory setup
+        self.external_dir = self.project_path / "externallib"
+        self.install_dir = self.external_dir / "install"
+        self.mqtt_c_dir = self.external_dir / "paho.mqtt.c"
+        self.mqtt_cpp_dir = self.external_dir / "paho.mqtt.cpp"
+        self.spdlog_dir = self.external_dir / "spdlog"
+        self.openssl_dir = self.external_dir / "openssl"
+        self.canopen_linux_dir = self.external_dir / "canopenlinux"
+        self.build_type = "Release"
 
-EXTERNAL_DIR = "externallib"
-MQTT_C_DIR = os.path.join(EXTERNAL_DIR, "paho.mqtt.c")
-MQTT_CPP_DIR = os.path.join(EXTERNAL_DIR, "paho.mqtt.cpp")
-BUILD_TYPE = "Release"
+    def run_command(self, cmd, cwd=None):
+        """Execute shell command and handle errors"""
+        try:
+            subprocess.run(cmd, check=True, shell=True, cwd=cwd)
+        except subprocess.CalledProcessError as e:
+            print(f"Error executing command: {cmd}")
+            print(f"Error: {str(e)}")
+            exit(1)
 
-def run_command(command, cwd=None):
-    print(f"Running: {' '.join(command)}")
-    subprocess.check_call(command, cwd=cwd, shell=True)
+    def create_directories(self):
+        """Create necessary directories"""
+        self.external_dir.mkdir(parents=True, exist_ok=True)
+        self.install_dir.mkdir(parents=True, exist_ok=True)
 
-# Ensure externallib directory exists
-os.makedirs(EXTERNAL_DIR, exist_ok=True)
+    def build_openssl(self):
+        """Clone and build OpenSSL"""
+        if not self.openssl_dir.exists():
+            print("Cloning OpenSSL repository...")
+            self.run_command(f"git clone [https://github.com/openssl/openssl.git](https://github.com/openssl/openssl.git) {self.openssl_dir}")
+            os.chdir(self.openssl_dir)
+            self.run_command("git checkout OpenSSL_1_1_1t")
+            print("Building OpenSSL for cross-compilation...")
+            # Add OpenSSL build commands here
 
-# Fetch and build Paho MQTT C library
-if not os.path.exists(MQTT_C_DIR):
-    run_command(["git", "clone", "https://github.com/eclipse/paho.mqtt.c.git", MQTT_C_DIR])
-    run_command(["git", "checkout", "v1.3.12"], cwd=MQTT_C_DIR)
-    run_command(["cmake", "-Bbuild", "-H.", f"-DPAHO_BUILD_STATIC=ON", f"-DPAHO_WITH_SSL=ON", f"-DCMAKE_BUILD_TYPE={BUILD_TYPE}"], cwd=MQTT_C_DIR)
-    run_command(["cmake", "--build", "build", "--target", "install"], cwd=MQTT_C_DIR)
-else:
-    print("Paho MQTT C library already exists. Skipping fetch.")
+    def build_mqtt_c(self):
+        """Clone and build Paho MQTT C"""
+        if not self.mqtt_c_dir.exists():
+            print("Cloning Paho MQTT C repository...")
+            self.run_command(f"git clone [https://github.com/eclipse/paho.mqtt.c.git](https://github.com/eclipse/paho.mqtt.c.git) {self.mqtt_c_dir}")
+            # Add MQTT C build commands here
 
-# Fetch and build Paho MQTT C++ library
-if not os.path.exists(MQTT_CPP_DIR):
-    run_command(["git", "clone", "https://github.com/eclipse/paho.mqtt.cpp.git", MQTT_CPP_DIR])
-    run_command(["git", "checkout", "v1.4.0"], cwd=MQTT_CPP_DIR)
-    run_command(["git", "submodule", "init"], cwd=MQTT_CPP_DIR)
-    run_command(["git", "submodule", "update"], cwd=MQTT_CPP_DIR)
-    run_command(["cmake", "-Bbuild", "-H.", f"-DPAHO_WITH_MQTT_C=ON", f"-DPAHO_BUILD_EXAMPLES=OFF", f"-DCMAKE_BUILD_TYPE={BUILD_TYPE}"], cwd=MQTT_CPP_DIR)
-    run_command(["cmake", "--build", "build", "--target", "install"], cwd=MQTT_CPP_DIR)
-else:
-    print("Paho MQTT C++ library already exists. Skipping fetch.")
+    def build_mqtt_cpp(self):
+        """Clone and build Paho MQTT C++"""
+        if not self.mqtt_cpp_dir.exists():
+            print("Cloning Paho MQTT C++ repository...")
+            self.run_command(f"git clone [https://github.com/eclipse/paho.mqtt.cpp.git](https://github.com/eclipse/paho.mqtt.cpp.git) {self.mqtt_cpp_dir}")
+            # Add MQTT C++ build commands here
 
-print("External libraries built successfully.")
+    def build_spdlog(self):
+        """Clone and build spdlog"""
+        if not self.spdlog_dir.exists():
+            print("Cloning spdlog repository...")
+            self.run_command(f"git clone [https://github.com/gabime/spdlog.git](https://github.com/gabime/spdlog.git) {self.spdlog_dir}")
+            # Add spdlog build commands here
+
+    def build_project(self):
+        """Build the main project"""
+        build_dir = self.project_path / "build"
+        build_dir.mkdir(exist_ok=True)
+        os.chdir(build_dir)
+        self.run_command("cmake ..")
+        self.run_command("make")
+
+def main():
+    builder = BuildSystem()
+    builder.create_directories()
+    builder.build_openssl()
+    builder.build_mqtt_c()
+    builder.build_mqtt_cpp()
+    builder.build_spdlog()
+    builder.build_project()
+
+if __name__ == "__main__":
+    main()

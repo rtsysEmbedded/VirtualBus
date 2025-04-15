@@ -10,7 +10,10 @@ CXX=${CROSS_COMPILE_PATH}${CROSS_COMPILE}g++
 LD=${CROSS_COMPILE_PATH}${CROSS_COMPILE}ld        # Linker
 
 # Set up the external library and project directories
-PROJECT_PATH="/home/ubuntu/Documents/cpp_project"
+#PROJECT_PATH="/home/ubuntu/Documents/cpp_project"
+# Get the directory where the script is located
+PROJECT_PATH="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+echo "Project path detected as: ${PROJECT_PATH}"
 EXTERNAL_DIR="$PROJECT_PATH/externallib"
 INSTALL_DIR="$PROJECT_PATH/externallib/install"  # Ensure absolute path is used
 MQTT_C_DIR="$EXTERNAL_DIR/paho.mqtt.c"
