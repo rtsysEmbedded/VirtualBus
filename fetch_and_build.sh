@@ -28,27 +28,28 @@ mkdir -p $EXTERNAL_DIR
 mkdir -p $INSTALL_DIR
 
 # Check if OpenSSL directory exists, if not, clone and build it
-if [ ! -d "$OPENSSL_DIR" ]; then
-    echo "Cloning OpenSSL repository..."
-    git clone https://github.com/openssl/openssl.git $OPENSSL_DIR
-    cd $OPENSSL_DIR
-    # Optionally checkout a specific tag, for example v1.1.1
-    git checkout OpenSSL_1_1_1t
-    echo "Building OpenSSL for cross-compilation..."
+# if [ ! -d "$OPENSSL_DIR" ]; then
+#     echo "Cloning OpenSSL repository..."
+#     git clone https://github.com/openssl/openssl.git $OPENSSL_DIR
+#     cd $OPENSSL_DIR
+#     # Optionally checkout a specific tag, for example v1.1.1
+#     git checkout OpenSSL_1_1_1t
+#     echo "Building OpenSSL for cross-compilation..."
 
-    export CC=$CROSS_COMPILE_PATH$CROSS_COMPILE"gcc"
-    export CXX=$CROSS_COMPILE_PATH$CROSS_COMPILE"g++"
-    export LD=$CROSS_COMPILE_PATH$CROSS_COMPILE"ld"
-    # Create build directory
-    ./Configure linux-armv4 --cross-compile-prefix=${CROSS_COMPILE_PATH}${CROSS_COMPILE} --prefix=${INSTALL_DIR} -march=armv7-a -mfpu=neon
+#     export CC=$CROSS_COMPILE_PATH$CROSS_COMPILE"gcc"
+#     export CXX=$CROSS_COMPILE_PATH$CROSS_COMPILE"g++"
+#     export LD=$CROSS_COMPILE_PATH$CROSS_COMPILE"ld"
+#     # Create build directory
+#     #./Configure linux-armv4 --cross-compile-prefix=${CROSS_COMPILE_PATH}${CROSS_COMPILE} --prefix=${INSTALL_DIR} -march=armv7-a -mfpu=neon
+#     ./Configure linux-x86_64 --prefix=${INSTALL_DIR}
 
-    echo "Building canopen library..."
-    make CC=$CC CXX=$CXX LD=$LD
-    make install
-    cd -
-else
-    echo "OpenSSL source already exists. Skipping fetch."saeid 
-fi
+#     echo "Building canopen library..."
+#     make CC=$CC CXX=$CXX LD=$LD
+#     make install
+#     cd -
+# else
+#     echo "OpenSSL source already exists. Skipping fetch."saeid 
+# fi
 
 
 # Fetch and build Paho MQTT C library
@@ -60,7 +61,7 @@ if [ ! -d "$MQTT_C_DIR" ]; then
     echo "Building Paho MQTT C library..."
     cmake -Bbuild -H. \
     -DPAHO_BUILD_STATIC=ON \
-    -DPAHO_WITH_SSL=ON \
+    -DPAHO_WITH_SSL=OFF \
     -DOPENSSL_ROOT_DIR=${INSTALL_DIR} \
     -DOPENSSL_LIBRARIES=${INSTALL_DIR}/lib \
     -DOPENSSL_INCLUDE_DIR=${INSTALL_DIR}/include \
@@ -88,7 +89,7 @@ if [ ! -d "$MQTT_CPP_DIR" ]; then
     cmake -Bbuild -H. \
         -DPAHO_BUILD_STATIC=ON \
         -DPAHO_WITH_MQTT_C=ON \
-        -DPAHO_WITH_SSL=ON \
+        -DPAHO_WITH_SSL=OFF \
         -DOPENSSL_ROOT_DIR=${INSTALL_DIR} \
         -DOPENSSL_LIBRARIES=${INSTALL_DIR}/lib \
         -DOPENSSL_INCLUDE_DIR=${INSTALL_DIR}/include \
