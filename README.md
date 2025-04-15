@@ -2,6 +2,9 @@
 # C++ Project
 
 This is a reorganized C++ project structure with the following layout:
+<p align="center">
+  <img src="images/software_architect.png" width="400" alt="Description" />
+</p>
 
 - `src/` - Source files.
 - `include/` - Header files.
