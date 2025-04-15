@@ -20,7 +20,7 @@ jobs:
 
     - name: Make script executable
       run: |
-        rm externallib/*
+        ls externallib/
         chmod +x ./fetch_and_build.sh
 
     - name: Build using fetch_and_build script
