@@ -17,6 +17,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y build-essential cmake gcc
+        sudo apt-get install -y clang-tidy cppcheck
 
     - name: Make script executable
       run: |
@@ -43,3 +44,14 @@ jobs:
         cd build
         cmake ..
         make
+    - name: Run clang-tidy
+      run: |
+        cd build
+        cmake .. -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+        cd ..
+        clang-tidy -p build $(find . -name '*.cpp') || true
+
+    - name: Run cppcheck
+      run: |
+        cppcheck --enable=all --inconclusive --quiet --std=c++17 --suppress=missingIncludeSystem . || true
+        
