@@ -5,7 +5,7 @@
 #CROSS_COMPILE=arm-none-linux-gnueabihf-  # Modify this if your toolchain has a different prefix
 CROSS_COMPILE_PATH=
 CROSS_COMPILE=
-
+ARCH=
 # Set the compilers and linker explicitly
 CC=${CROSS_COMPILE_PATH}${CROSS_COMPILE}gcc
 CXX=${CROSS_COMPILE_PATH}${CROSS_COMPILE}g++

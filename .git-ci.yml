@@ -1,0 +1,45 @@
+name: C++ CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: self-hosted
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install base dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake gcc
+
+    - name: Make script executable
+      run: |
+        ls externallib/
+        chmod +x ./fetch_and_build.sh
+
+    - name: Build using fetch_and_build script
+      run: |
+        ./fetch_and_build.sh
+
+    - name: Cache external libraries
+      uses: actions/cache@v3
+      with:
+        path: |
+          externallib
+          externallib/install
+        key: ${{ runner.os }}-external-libs-${{ hashFiles('fetch_and_build.sh') }}
+        restore-keys: |
+          ${{ runner.os }}-external-libs-
+
+    - name: Build project
+      run: |
+        mkdir -p build
+        cd build
+        cmake ..
+        make
