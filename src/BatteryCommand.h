@@ -19,7 +19,7 @@ private:
     uint8_t numberOfReadyCubes = 0;
     uint16_t voltageMinimum = std::numeric_limits<uint16_t>::max();
     uint16_t voltageMaximum = std::numeric_limits<uint16_t>::min();
-    int16_t voltageMean = 0;
+    uint16_t voltageMean = 0;
     uint16_t socMaximum = std::numeric_limits<uint16_t>::min();
     uint16_t socMinimum = std::numeric_limits<uint16_t>::max();
     uint32_t socMean = 0;
@@ -113,6 +113,72 @@ public:
     }
 
     /**
+     * @brief Setter for the minimum state of charge (SOC).
+     * @param[in] value Minimum SOC.
+     */
+    void setMinSOC(uint16_t value) {
+        socMinimum = value;
+        if (logger_) {
+            logger_->info("BatteryStateCmd: Set SOC MIN to " + std::to_string(value));
+        }
+    }
+
+    /**
+     * @brief Setter for the maximum state of charge (SOC).
+     * @param[in] value Maximum SOC.
+     */
+    void setMaxSOC(uint16_t value) {
+        socMaximum = value;
+        if (logger_) {
+            logger_->info("BatteryStateCmd: Set SOC MAX to " + std::to_string(value));
+        }
+    }
+
+    /**
+     * @brief Setter for the mean voltage.
+     * @param[in] value Mean voltage.
+     */
+    void setMeanVoltage(uint16_t value) {
+        voltageMean = value;
+        if (logger_) {
+            logger_->info("BatteryStateCmd: Set Voltage AVG to " + std::to_string(value));
+        }
+    }
+
+    /**
+     * @brief Setter for the mean current.
+     * @param[in] value Mean current.
+     */
+    void setMeanCurrent(int32_t value) {
+        currentMean = value;
+        if (logger_) {
+            logger_->info("BatteryStateCmd: Set Current AVG to " + std::to_string(value));
+        }
+    }
+
+    /**
+     * @brief Setter for the minimum current.
+     * @param[in] value Minimum current.
+     */
+    void setMinCurrent(int32_t value) {
+        currentMinimum = value;
+        if (logger_) {
+            logger_->info("BatteryStateCmd: Set Current MIN to " + std::to_string(value));
+        }
+    }
+
+    /**
+     * @brief Setter for the maximum current.
+     * @param[in] value Maximum current.
+     */
+    void setMaxCurrent(int32_t value) {
+        currentMaximum = value;
+        if (logger_) {
+            logger_->info("BatteryStateCmd: Set Current MAX to " + std::to_string(value));
+        }
+    }
+
+    /**
      * @brief Getter for the number of battery cubes.
      * @return Number of battery cubes.
      */
@@ -140,7 +206,7 @@ public:
      * @brief Getter for the mean voltage.
      * @return Mean voltage.
      */
-    uint16_t getVoltageMean() const { return voltageMaximum + voltageMinimum / 2; }
+    uint16_t getVoltageMean() const { return (voltageMaximum + voltageMinimum) / 2; }
 
     /**
      * @brief Getter for the minimum state of charge (SOC).
