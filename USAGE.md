@@ -633,27 +633,11 @@ try {
 // Create thread pool with specified number of threads
 ThreadPool pool(4);  // 4 worker threads
 
-// Submit work to the pool
-pool.submit([]() {
+// Enqueue work at a priority (0 = lowest, ThreadPool::kNumPriorityLevels - 1
+// = highest; ThreadPool::kDefaultPriority is a reasonable default)
+pool.enqueue(ThreadPool::kDefaultPriority, []() {
     std::cout << "Work done by thread pool" << std::endl;
 });
-```
-
-### Watchdog Timer
-
-```cpp
-#include "Watchdog.h"
-
-Watchdog watchdog(logger);
-
-// Start watchdog with timeout
-watchdog.start(std::chrono::seconds(30));
-
-// Feed the watchdog (prevent timeout)
-watchdog.feed();
-
-// Stop watchdog
-watchdog.stop();
 ```
 
 ### Diagnostic Task

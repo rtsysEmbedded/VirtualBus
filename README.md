@@ -83,7 +83,9 @@ VirtualBus/
 │   │   ├── SpdLogWrapper.h       # spdlog wrapper implementation
 │   │   ├── StdCoutLogger.h       # stdout logger implementation
 │   │   ├── DiagnosticTask.h      # Diagnostic utilities
-│   │   └── Watchdog.h            # Watchdog timer
+│   │   ├── IClock.h              # Clock interface (injectable time source)
+│   │   ├── SystemClock.h         # Real-time IClock implementation
+│   │   └── VirtualClock.h        # Settable/advanceable IClock for tests
 │   │
 │   └── src/                      # Implementation files
 │       ├── VirtualBus.cpp
