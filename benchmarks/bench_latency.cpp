@@ -96,7 +96,14 @@ static void printStats(const std::string& label, const Stats& s) {
 // callback. Returns latency stats pooled across all receivers: with
 // broadcast semantics every receiver sees every message, so the pooled
 // distribution is what any given receiver actually experiences.
-static Stats runScenario(int numReceivers, int numMessages, bool withLogger, bool busySend) {
+// When `targeted` is true, every message is sent only to the first
+// attached receiver (id 100) via VirtualBus's targeted-delivery
+// sendMessage(..., targetId) overload, instead of being broadcast to
+// all numReceivers. This isolates the cost of broadcasting itself: with
+// targeted delivery, adding more attached-but-uninvolved receivers
+// should no longer move the latency of a message actually addressed to
+// just one of them.
+static Stats runScenario(int numReceivers, int numMessages, bool withLogger, bool busySend, bool targeted = false) {
     auto logger = withLogger ? std::make_shared<StdCoutLogger>() : nullptr;
     VirtualBus bus(logger);
 
@@ -108,8 +115,9 @@ static Stats runScenario(int numReceivers, int numMessages, bool withLogger, boo
     std::vector<double> samplesUs;
     samplesUs.reserve(static_cast<size_t>(numReceivers) * static_cast<size_t>(numMessages));
 
+    const int firstReceiverId = 100;
     for (int r = 0; r < numReceivers; ++r) {
-        int id = 100 + r;
+        int id = firstReceiverId + r;
         bus.attach(id, "Receiver" + std::to_string(r));
         receivedCounts.push_back(std::make_unique<std::atomic<int>>(0));
         std::atomic<int>* counter = receivedCounts.back().get();
@@ -129,17 +137,24 @@ static Stats runScenario(int numReceivers, int numMessages, bool withLogger, boo
     for (int i = 0; i < numMessages; ++i) {
         auto cmd = std::make_shared<TimedCmd>();
         cmd->sentAt = Clock::now();
-        bus.sendMessage(senderId, cmd);
+        if (targeted) {
+            bus.sendMessage(senderId, cmd, firstReceiverId);
+        } else {
+            bus.sendMessage(senderId, cmd);
+        }
         if (!busySend) {
             std::this_thread::sleep_for(std::chrono::microseconds(200));
         }
     }
 
-    // Wait for every receiver to have processed every message, with a
-    // generous timeout as a safety net against a hang masking as a slow
-    // benchmark.
+    // Wait for every receiver that should have received all numMessages
+    // to have done so, with a generous timeout as a safety net against a
+    // hang masking as a slow benchmark. With targeted delivery only the
+    // first receiver gets anything, so only wait on that one.
     auto deadline = Clock::now() + std::chrono::seconds(30);
-    for (auto& c : receivedCounts) {
+    size_t receiversToWaitFor = targeted ? (numReceivers > 0 ? 1 : 0) : receivedCounts.size();
+    for (size_t i = 0; i < receiversToWaitFor; ++i) {
+        auto& c = receivedCounts[i];
         while (c->load(std::memory_order_relaxed) < numMessages && Clock::now() < deadline) {
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
         }
@@ -180,6 +195,15 @@ int main() {
     std::printf("\n=== E. Paced send (~200us between sends, 1 receiver) ===\n");
     printStats("1 receiver, 1000 msgs, paced", runScenario(1, 1000, false, false));
     printStats("20 receivers, 1000 msgs, paced", runScenario(20, 1000, false, false));
+
+    std::printf("\n=== F. Targeted delivery vs. broadcast, no logger, busy-send ===\n");
+    std::printf("(targeted: 1000 messages addressed to a single receiver via sendMessage(..., targetId), with N total attached-but-uninvolved receivers)\n");
+    printStats("broadcast,  1 attached, 1000 msgs", runScenario(1, 1000, false, true, false));
+    printStats("targeted,   1 attached, 1000 msgs", runScenario(1, 1000, false, true, true));
+    printStats("broadcast, 20 attached, 1000 msgs", runScenario(20, 1000, false, true, false));
+    printStats("targeted,  20 attached, 1000 msgs", runScenario(20, 1000, false, true, true));
+    printStats("broadcast, 50 attached, 1000 msgs", runScenario(50, 1000, false, true, false));
+    printStats("targeted,  50 attached, 1000 msgs", runScenario(50, 1000, false, true, true));
 
     return 0;
 }

@@ -41,9 +41,12 @@ protected:
             command->updateTimestamp();
             command->setMode(InverterCommand::Mode::Charging);
 
-            bus_.sendMessage(id_, command);
-            if (logger_) {
-                logger_->info("SendTask: Sent InverterCommand (Charging): Voltage = " + std::to_string(command->getVoltage()) + ", Current = " + std::to_string(command->getCurrent()));
+            if (bus_.sendMessage(id_, command) == ReturnType::OK) {
+                if (logger_) {
+                    logger_->info("SendTask: Sent InverterCommand (Charging): Voltage = " + std::to_string(command->getVoltage()) + ", Current = " + std::to_string(command->getCurrent()));
+                }
+            } else if (logger_) {
+                logger_->warn("SendTask: Failed to send InverterCommand.");
             }
         }
         if (logger_) {

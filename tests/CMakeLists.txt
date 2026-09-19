@@ -66,11 +66,18 @@ target_link_libraries(test_battery_command PRIVATE unicore_core app_commands)
 target_include_directories(test_battery_command PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${APP_SRC_DIR})
 add_test(NAME test_battery_command COMMAND test_battery_command)
 
-# --- Basic VirtualBus smoke tests (non-racy attach/send/receive path) ---
+# --- Basic VirtualBus smoke/feature tests (broadcast, targeted delivery,
+#     priority ordering, clock injection, attach validation) ---
 add_executable(test_virtualbus_basic test_virtualbus_basic.cpp)
 target_link_libraries(test_virtualbus_basic PRIVATE unicore_core)
 target_include_directories(test_virtualbus_basic PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 add_test(NAME test_virtualbus_basic COMMAND test_virtualbus_basic)
+
+# --- Regression test: ThreadPool must dispatch by priority, not plain FIFO ---
+add_executable(test_threadpool_priority test_threadpool_priority.cpp)
+target_link_libraries(test_threadpool_priority PRIVATE unicore_core)
+target_include_directories(test_threadpool_priority PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME test_threadpool_priority COMMAND test_threadpool_priority)
 
 # --- Regression test: receiveMessage() must not keep a dangling reference
 #     into a task's queue after a concurrent detach() erases it ---
