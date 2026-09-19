@@ -20,11 +20,13 @@ add_library(unicore_core STATIC
 target_include_directories(unicore_core PUBLIC ${UNICORE_INCLUDE_DIR} ${NLOHMANN_INCLUDE_DIR})
 target_link_libraries(unicore_core PUBLIC pthread)
 
-# InverterCommand.cpp lives under src/ (application layer) rather than the
-# unicore library, but SendTask/ReceiveTask depend on it and the
-# logger-propagation regression test exercises those two classes directly.
+# InverterCommand.cpp and BatteryCommand.cpp live under src/ (application
+# layer) rather than the unicore library, but SendTask/ReceiveTask depend
+# on InverterCommand.cpp and the logger-propagation regression test
+# exercises these classes directly.
 add_library(app_commands STATIC
     ${APP_SRC_DIR}/InverterCommand.cpp
+    ${APP_SRC_DIR}/BatteryCommand.cpp
 )
 target_include_directories(app_commands PUBLIC ${APP_SRC_DIR})
 target_link_libraries(app_commands PUBLIC unicore_core)
@@ -48,6 +50,21 @@ add_executable(test_logger_propagation test_logger_propagation.cpp)
 target_link_libraries(test_logger_propagation PRIVATE unicore_core app_commands)
 target_include_directories(test_logger_propagation PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${APP_SRC_DIR})
 add_test(NAME test_logger_propagation COMMAND test_logger_propagation)
+
+# --- Regression test: BatteryCommand.h/BatteryCommandParser.h must
+#     actually compile and work ---
+# This file didn't compile at all before this fix (a header include cycle
+# between BatteryCommand.h and BatteryCommandParser.h, a constructor that
+# referenced a CommandType::Server enumerator that doesn't exist, a print()
+# that called a print_base() that doesn't exist, and a parser that called
+# setter methods BatteryStateCmd never declared), and was never included
+# or built anywhere in the project, so none of that was ever caught. This
+# target exercises the full parse -> set -> get round trip so a
+# regression here is a build failure or a test failure, not silence.
+add_executable(test_battery_command test_battery_command.cpp)
+target_link_libraries(test_battery_command PRIVATE unicore_core app_commands)
+target_include_directories(test_battery_command PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${APP_SRC_DIR})
+add_test(NAME test_battery_command COMMAND test_battery_command)
 
 # --- Basic VirtualBus smoke tests (non-racy attach/send/receive path) ---
 add_executable(test_virtualbus_basic test_virtualbus_basic.cpp)

@@ -17,17 +17,18 @@
 // from src/ and checks the logger actually passed in by the caller is the
 // one that receives the log messages.
 //
-// InverterCommand had the identical shadowing pattern one level down, in
-// VirtualBusCmd: InverterCommand declared its own private `logger_` and
-// constructed its base with `VirtualBusCmd()` -- no logger argument at
-// all -- so every base-class method (updateTimestamp(), setParser(),
-// parse(), printBase(), the destructor) always logged through a null
-// logger_ regardless of what was passed to InverterCommand's own
-// constructor. VirtualBusCmd::logger_ is now protected, InverterCommand
-// no longer shadows it, and its constructor forwards the logger to the
+// InverterCommand and BatteryStateCmd both had the identical shadowing
+// pattern one level down, in VirtualBusCmd: each declared its own private
+// `logger_` and constructed its base with `VirtualBusCmd()` -- no logger
+// argument at all -- so every base-class method (updateTimestamp(),
+// setParser(), parse(), printBase(), the destructor) always logged
+// through a null logger_ regardless of what was passed to the subclass's
+// own constructor. VirtualBusCmd::logger_ is now protected, neither
+// subclass shadows it, and both constructors forward the logger to the
 // base class.
 #include "test_framework.h"
 
+#include "BatteryCommand.h"
 #include "ILogger.h"
 #include "InverterCommand.h"
 #include "ReciveTask.h"
@@ -117,6 +118,20 @@ VB_TEST(InverterCommand_PropagatesLoggerToBaseClass) {
     // assigned) and must keep working now that the identifier resolves to
     // the inherited member instead.
     VB_CHECK(logger->anyContains("InverterCommand: Initialized with mode Charging."));
+}
+
+VB_TEST(BatteryStateCmd_PropagatesLoggerToBaseClass) {
+    auto logger = std::make_shared<RecordingLogger>();
+    BatteryStateCmd cmd(logger);
+
+    // Same bug, same fix, one more subclass: BatteryStateCmd used to
+    // shadow VirtualBusCmd::logger_ the same way InverterCommand did, so
+    // this base-class message was always dropped regardless of what
+    // logger was passed to BatteryStateCmd's constructor.
+    VB_CHECK(logger->anyContains("VirtualBusCmd: Command created with default type Json."));
+
+    cmd.setNumberOfCubes(5);
+    VB_CHECK(logger->anyContains("BatteryStateCmd: Set Cube_Num to 5"));
 }
 
 int main() {

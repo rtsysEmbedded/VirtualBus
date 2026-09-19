@@ -4,7 +4,7 @@
 
 #include "VirtualBusCmd.h"
 #include "nlohmann/json.hpp"
-#include "BatteryCommandParser.h"
+#include "JsonCmdParser.h"
 #include "ILogger.h"
 #include <limits>
 #include <memory>
@@ -29,24 +29,87 @@ private:
     int32_t currentMaximum = std::numeric_limits<int32_t>::min();
     int16_t temperatureMinimum = std::numeric_limits<int16_t>::max();
     int16_t temperatureMaximum = std::numeric_limits<int16_t>::min();
-    std::shared_ptr<ILogger> logger_; ///< Logger instance for logging messages
 
 public:
     /**
-     * @brief Constructor initializing command type as Server.
+     * @brief Constructor initializing command type as Battery.
      *
      * @param[in] logger A shared pointer to a logger instance for logging messages.
      */
-    BatteryStateCmd(std::shared_ptr<ILogger> logger = nullptr) : VirtualBusCmd(), logger_(logger) {
-        type = CommandType::Server;
+    BatteryStateCmd(std::shared_ptr<ILogger> logger = nullptr) : VirtualBusCmd(logger) {
+        type_ = CommandType::Battery;
     }
 
     /**
      * @brief Initializes the parser for the battery state command.
+     *
+     * Defined in BatteryCommand.cpp rather than inline here, because
+     * building it needs BatteryCommandParser.h, which itself includes
+     * BatteryCommand.h to reference BatteryStateCmd. If BatteryCommand.h
+     * included BatteryCommandParser.h back (as it originally did), the
+     * include guards would make whichever header started the cycle win:
+     * for a translation unit that includes BatteryCommand.h first, that
+     * header's own include of BatteryCommandParser.h would run before the
+     * BatteryStateCmd class it needs to reference was fully defined,
+     * which doesn't compile. Splitting the definition out (the same
+     * pattern InverterCommand.cpp already uses for
+     * InverterCommand::initializeParser()) avoids the cycle entirely.
      */
-    void initializeParser() {
-        setParser(std::make_shared<BatteryCommandParser>());
-        if (logger_) logger_->info("BatteryStateCmd: Parser initialized.");
+    void initializeParser();
+
+    /**
+     * @brief Setter for the number of battery cubes.
+     * @param[in] value Number of battery cubes.
+     */
+    void setNumberOfCubes(uint8_t value) {
+        numberOfCubes = value;
+        if (logger_) {
+            logger_->info("BatteryStateCmd: Set Cube_Num to " + std::to_string(value));
+        }
+    }
+
+    /**
+     * @brief Setter for the number of ready battery cubes.
+     * @param[in] value Number of ready battery cubes.
+     */
+    void setNumOfReadyCubes(uint8_t value) {
+        numberOfReadyCubes = value;
+        if (logger_) {
+            logger_->info("BatteryStateCmd: Set Cube_OP to " + std::to_string(value));
+        }
+    }
+
+    /**
+     * @brief Setter for the minimum voltage.
+     * @param[in] value Minimum voltage.
+     */
+    void setMinVoltage(uint16_t value) {
+        voltageMinimum = value;
+        if (logger_) {
+            logger_->info("BatteryStateCmd: Set Voltage MIN to " + std::to_string(value));
+        }
+    }
+
+    /**
+     * @brief Setter for the maximum voltage.
+     * @param[in] value Maximum voltage.
+     */
+    void setMaxVoltage(uint16_t value) {
+        voltageMaximum = value;
+        if (logger_) {
+            logger_->info("BatteryStateCmd: Set Voltage MAX to " + std::to_string(value));
+        }
+    }
+
+    /**
+     * @brief Setter for the mean state of charge (SOC).
+     * @param[in] value Mean SOC.
+     */
+    void setMeanSOC(uint32_t value) {
+        socMean = value;
+        if (logger_) {
+            logger_->info("BatteryStateCmd: Set SOC AVG to " + std::to_string(value));
+        }
     }
 
     /**
@@ -199,7 +262,7 @@ public:
      * @brief Prints the battery state in JSON format.
      */
     void print() const override {
-        print_base();
+        printBase();
         if (logger_) logger_->info("BatteryStateCmd: Printing battery state as JSON.");
         std::cout << toJson().dump(4) << std::endl; // Pretty print with 4 spaces indentation
     }
