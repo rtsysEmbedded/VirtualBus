@@ -29,6 +29,83 @@ figures.
 
 ---
 
+## 2026-09-19 -- targeted delivery + priority added (commit `7bb8bd1`)
+
+Follow-up to the baseline below, after adding targeted delivery
+(`sendMessage(..., targetId)`), per-message priority (dequeued/dispatched
+highest-first on both the polling and callback paths), and an injectable
+clock. New scenario F isolates the one architectural change this
+benchmark exists to validate: does routing a message to a specific task
+instead of broadcasting to everyone stop that message's latency from
+scaling with how many *other* tasks happen to be attached?
+
+**Environment:** same 4-core cloud sandbox VM as the baseline below,
+`-O2 -DNDEBUG`. Total run time: ~4.3s.
+
+```
+VirtualBus latency/jitter benchmark
+commit: 7bb8bd1
+run at: 2026-09-19 21:52:08 UTC
+hardware_concurrency (ThreadPool size): 4
+
+=== A. Baseline: 1 sender -> 1 receiver, no logger, busy-send ===
+1 receiver, 2000 msgs, no logger         n=2000   min=     1.3  p50=     5.3  p90=    17.6  p99=    53.9  max=      95.0  mean=    10.5  stddev=    10.3  (us)
+
+=== B. Fan-out scaling: broadcast-to-all cost, no logger, busy-send ===
+1 receiver,  1000 msgs                   n=1000   min=     2.6  p50=     5.1  p90=    15.8  p99=    23.5  max=      67.2  mean=     8.4  stddev=     5.8  (us)
+5 receivers, 1000 msgs                   n=5000   min=     2.5  p50=    47.1  p90=    77.1  p99=   105.7  max=     166.8  mean=    43.9  stddev=    26.9  (us)
+20 receivers, 1000 msgs                  n=20000  min=     4.2  p50=   182.5  p90=   329.9  p99=   636.6  max=     786.0  mean=   190.9  stddev=   124.9  (us)
+50 receivers, 1000 msgs                  n=50000  min=     9.3  p50=   429.4  p90=   775.5  p99=   884.4  max=    2178.5  mean=   432.3  stddev=   252.5  (us)
+
+=== C. Logging on the hot path: 1 receiver, 1000 msgs, busy-send ===
+no logger                                n=1000   min=     1.7  p50=     5.0  p90=    15.7  p99=    28.9  max=      63.0  mean=     8.3  stddev=     5.9  (us)
+StdCoutLogger enabled                    n=1000   min=     5.3  p50=    30.2  p90=    32.1  p99=    61.1  max=     193.9  mean=    31.5  stddev=     8.3  (us)
+
+=== D. Fan-out + logging combined worst case, busy-send ===
+20 receivers, 1000 msgs, no logger       n=20000  min=     4.2  p50=   177.4  p90=   322.5  p99=   477.8  max=    1350.5  mean=   182.3  stddev=   115.9  (us)
+20 receivers, 1000 msgs, w/ logger       n=20000  min=    17.2  p50=   182.6  p90=   320.5  p99=   381.5  max=     512.8  mean=   185.1  stddev=   100.2  (us)
+
+=== E. Paced send (~200us between sends, 1 receiver) ===
+1 receiver, 1000 msgs, paced             n=1000   min=     4.3  p50=    34.7  p90=    45.7  p99=    73.8  max=     102.0  mean=    37.3  stddev=     8.8  (us)
+20 receivers, 1000 msgs, paced           n=20000  min=    10.9  p50=   194.3  p90=   340.6  p99=   403.0  max=     654.0  mean=   195.4  stddev=   109.0  (us)
+
+=== F. Targeted delivery vs. broadcast, no logger, busy-send ===
+(targeted: 1000 messages addressed to a single receiver via sendMessage(..., targetId), with N total attached-but-uninvolved receivers)
+broadcast,  1 attached, 1000 msgs        n=1000   min=     1.6  p50=     5.2  p90=    15.9  p99=    28.4  max=      70.7  mean=     8.5  stddev=     5.8  (us)
+targeted,   1 attached, 1000 msgs        n=1000   min=     1.6  p50=     5.1  p90=    15.8  p99=    20.2  max=      44.4  mean=     8.2  stddev=     5.2  (us)
+broadcast, 20 attached, 1000 msgs        n=20000  min=     4.1  p50=   164.0  p90=   307.7  p99=   376.3  max=     726.5  mean=   170.8  stddev=   101.2  (us)
+targeted,  20 attached, 1000 msgs        n=1000   min=     2.4  p50=     5.1  p90=    16.5  p99=    22.9  max=      70.7  mean=     8.3  stddev=     6.3  (us)
+broadcast, 50 attached, 1000 msgs        n=50000  min=    11.5  p50=   431.1  p90=   780.8  p99=   896.4  max=    1167.6  mean=   434.2  stddev=   251.8  (us)
+targeted,  50 attached, 1000 msgs        n=1000   min=     2.2  p50=     5.0  p90=    15.7  p99=    28.6  max=     112.4  mean=     8.5  stddev=     6.8  (us)
+```
+
+### Reading this run
+
+- **Scenario F confirms the fix**: broadcast latency still scales with
+  attached-receiver count exactly as in the baseline (p50 ~5us at 1
+  receiver -> ~164us at 20 -> ~431us at 50). Targeted-delivery p50 stays
+  flat at ~5us regardless of whether 1, 20, or 50 *other* tasks happen to
+  be attached -- because sendMessage(..., targetId) now pushes into
+  exactly one task's queue instead of iterating every attached task
+  under the shared busMutex_. This was the single largest jitter source
+  identified in the original baseline; it's now opt-in per message
+  rather than mandatory for every send.
+- **Scenarios A-E are within normal run-to-run variance of the original
+  baseline** (compare e.g. fan-out B's 20-receiver p50: 182.5us here vs.
+  185.6us in the baseline) -- expected, since broadcast's own code path
+  didn't fundamentally change, it just gained a second, faster path
+  alongside it. Priority-queue overhead on the still-exercised broadcast
+  path (an array-index instead of a single queue push) doesn't show up
+  as a measurable regression here.
+- Not yet measured here: latency *by priority level* under contention
+  (e.g. does a Critical message still get low latency when the queue is
+  backed up with Low-priority traffic?). That would need a scenario that
+  mixes priorities under load, which scenario F doesn't yet do -- a
+  reasonable next addition to this benchmark if priority's effect under
+  contention specifically needs validating.
+
+---
+
 ## 2026-09-19 -- baseline (commit `e39c7b2`)
 
 First recorded run, establishing the baseline this bug-fix PR's
