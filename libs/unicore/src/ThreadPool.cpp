@@ -30,9 +30,10 @@ std::function<void()> ThreadPool::popNextTaskLocked() {
  *
  * @param[in] numThreads Number of threads to create in the pool.
  * @param[in] logger A shared pointer to a logger instance for logging messages.
+ * @param[in] maxQueueDepth Cap on each per-priority dispatch queue.
  */
-ThreadPool::ThreadPool(size_t numThreads, std::shared_ptr<ILogger> logger)
-    : stop_(false), logger_(logger) {
+ThreadPool::ThreadPool(size_t numThreads, std::shared_ptr<ILogger> logger, size_t maxQueueDepth)
+    : logger_(logger), stop_(false), maxQueueDepth_(maxQueueDepth) {
     for (size_t i = 0; i < numThreads; ++i) {
         workers_.emplace_back(
             [this] {

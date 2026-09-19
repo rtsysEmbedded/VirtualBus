@@ -8,12 +8,18 @@
  *
  * @param[in] logger A shared pointer to a logger instance for logging messages.
  * @param[in] clock A shared pointer to a time source; defaults to a real-time SystemClock.
+ * @param[in] maxQueueDepth Cap applied to each per-task, per-priority message queue.
+ * @param[in] threadPoolQueueDepth Cap applied to the internal ThreadPool's dispatch queues.
  */
-VirtualBus::VirtualBus(std::shared_ptr<ILogger> logger, std::shared_ptr<IClock> clock)
+VirtualBus::VirtualBus(std::shared_ptr<ILogger> logger, std::shared_ptr<IClock> clock,
+                       size_t maxQueueDepth, size_t threadPoolQueueDepth)
     : logger_(logger), clock_(clock ? std::move(clock) : std::make_shared<SystemClock>()),
-      running_(true), threadPool_(std::thread::hardware_concurrency()) {
+      running_(true), maxQueueDepth_(maxQueueDepth),
+      threadPool_(std::thread::hardware_concurrency(), nullptr, threadPoolQueueDepth) {
     if (logger_) {
-        logger_->info("VirtualBus: Initialized with " + std::to_string(std::thread::hardware_concurrency()) + " worker threads.");
+        logger_->info("VirtualBus: Initialized with " + std::to_string(std::thread::hardware_concurrency()) +
+                      " worker threads, max queue depth " + std::to_string(maxQueueDepth_) +
+                      ", thread pool queue depth " + std::to_string(threadPoolQueueDepth) + ".");
     }
 }
 
@@ -99,13 +105,27 @@ void VirtualBus::registerCallback(int taskId, CallbackFunction callback) {
     }
 }
 
-void VirtualBus::deliverToTaskLocked(TaskInfo& taskInfo, const std::shared_ptr<VirtualBusCmd>& message,
+bool VirtualBus::deliverToTaskLocked(int taskId, TaskInfo& taskInfo, const std::shared_ptr<VirtualBusCmd>& message,
                                       std::vector<std::function<void()>>& callbacksToInvoke) {
     size_t priorityIndex = static_cast<size_t>(message->getPriority());
     if (priorityIndex >= kPriorityLevels) {
         priorityIndex = kPriorityLevels - 1;
     }
-    taskInfo.messageQueues[priorityIndex].push(message);
+
+    auto& queue = taskInfo.messageQueues[priorityIndex];
+    if (queue.size() >= maxQueueDepth_) {
+        // Reject-new: the new message is dropped rather than evicting an
+        // older one or blocking the sender. sendMessage() surfaces this
+        // as ReturnType::BUSY to whoever called it.
+        if (logger_) {
+            logger_->warn("VirtualBus: Task ID " + std::to_string(taskId) + "'s queue at priority " +
+                          std::to_string(priorityIndex) + " is full (depth " + std::to_string(maxQueueDepth_) +
+                          "); dropping message.");
+        }
+        return false;
+    }
+
+    queue.push(message);
 
     if (taskInfo.callback) {
         auto callback = taskInfo.callback;
@@ -114,6 +134,7 @@ void VirtualBus::deliverToTaskLocked(TaskInfo& taskInfo, const std::shared_ptr<V
             callback(msg);
         });
     }
+    return true;
 }
 
 /**
@@ -131,6 +152,7 @@ ReturnType VirtualBus::sendMessage(int senderId, const std::shared_ptr<VirtualBu
     // responsibility to keep stable across this call, same as message's
     // contents already were before this change.
     size_t dispatchPriority = static_cast<size_t>(message->getPriority());
+    bool anyRecipientDropped = false;
 
     {
         std::lock_guard<std::mutex> lock(busMutex_);
@@ -151,7 +173,9 @@ ReturnType VirtualBus::sendMessage(int senderId, const std::shared_ptr<VirtualBu
         if (targetId == kBroadcast) {
             for (auto& [taskId, taskInfo] : tasks_) {
                 if (taskId != senderId) {
-                    deliverToTaskLocked(taskInfo, message, callbacksToInvoke);
+                    if (!deliverToTaskLocked(taskId, taskInfo, message, callbacksToInvoke)) {
+                        anyRecipientDropped = true;
+                    }
                 }
             }
         } else if (targetId == senderId) {
@@ -168,18 +192,31 @@ ReturnType VirtualBus::sendMessage(int senderId, const std::shared_ptr<VirtualBu
                 ErrorHandler::handleError("VirtualBus", "Target task ID " + std::to_string(targetId) + " not found.", ErrorHandler::ErrorSeverity::WARNING, logger_);
                 return ReturnType::NOT_FOUND;
             }
-            deliverToTaskLocked(targetIt->second, message, callbacksToInvoke);
+            if (!deliverToTaskLocked(targetId, targetIt->second, message, callbacksToInvoke)) {
+                anyRecipientDropped = true;
+            }
         }
     }
 
     busConditionVariable_.notify_all();
 
-    // Enqueue callbacks to the thread pool at the message's priority.
+    // Enqueue callbacks to the thread pool at the message's priority. The
+    // message is already safely queued for polling receivers at this
+    // point regardless of what happens here: a full ThreadPool dispatch
+    // queue means the async callback notification couldn't be scheduled
+    // right now, not that the message itself was lost.
     for (auto& func : callbacksToInvoke) {
-        threadPool_.enqueue(dispatchPriority, func);
+        try {
+            threadPool_.enqueue(dispatchPriority, func);
+        } catch (const std::runtime_error& e) {
+            anyRecipientDropped = true;
+            if (logger_) {
+                logger_->warn(std::string("VirtualBus: Callback dispatch queue full, notification skipped: ") + e.what());
+            }
+        }
     }
 
-    return ReturnType::OK;
+    return anyRecipientDropped ? ReturnType::BUSY : ReturnType::OK;
 }
 
 /**

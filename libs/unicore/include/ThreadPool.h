@@ -47,13 +47,21 @@ public:
     /// Convenience default for callers that don't care about priority.
     static constexpr size_t kDefaultPriority = 1; // matches Priority::Normal
 
+    /// Default cap on each per-priority dispatch queue. A separate,
+    /// independently-set constant from VirtualBus::kDefaultMaxQueueDepth
+    /// by design (ThreadPool stays decoupled from VirtualBus), though
+    /// VirtualBus happens to pass the same value through by default.
+    static constexpr size_t kDefaultMaxQueueDepth = 64;
+
     /**
      * @brief Constructor to initialize the thread pool with the specified number of threads.
      *
      * @param[in] numThreads Number of threads to be created in the pool.
      * @param[in] logger A shared pointer to a logger instance for logging messages.
+     * @param[in] maxQueueDepth Cap on each per-priority dispatch queue; see enqueue()'s doc comment.
      */
-    explicit ThreadPool(size_t numThreads, std::shared_ptr<ILogger> logger = nullptr);
+    explicit ThreadPool(size_t numThreads, std::shared_ptr<ILogger> logger = nullptr,
+                         size_t maxQueueDepth = kDefaultMaxQueueDepth);
 
     /**
      * @brief Destructor to properly shut down the thread pool.
@@ -70,6 +78,10 @@ public:
      * @param[in] f Function to be executed.
      * @param[in] args Arguments to be passed to the function.
      * @return A future representing the result of the task.
+     * @throws std::runtime_error if the pool has been stopped, or if the
+     * target priority's queue is already at maxQueueDepth (reject-new:
+     * the task is not enqueued, nothing is evicted). Callers that must
+     * not throw (VirtualBus::sendMessage() among them) should catch this.
      */
     template<class F, class... Args>
     auto enqueue(size_t priority, F&& f, Args&&... args)
@@ -82,6 +94,7 @@ private:
     std::mutex queueMutex_;  ///< Mutex for synchronizing access to the task queues
     std::condition_variable condition_;  ///< Condition variable to notify worker threads
     std::atomic<bool> stop_;  ///< Atomic flag to indicate if the pool should stop
+    size_t maxQueueDepth_;  ///< Cap applied to each per-priority dispatch queue
 
     /// Returns true if any priority queue is non-empty. Caller must hold queueMutex_.
     bool hasPendingTaskLocked() const;
@@ -118,6 +131,14 @@ auto ThreadPool::enqueue(size_t priority, F&& f, Args&&... args)
                     logger_->error("ThreadPool: Attempted to enqueue on stopped ThreadPool.");
                 }
                 throw std::runtime_error("enqueue on stopped ThreadPool");
+            }
+
+            if (tasksByPriority_[priority].size() >= maxQueueDepth_) {
+                if (logger_) {
+                    logger_->warn("ThreadPool: Queue at priority " + std::to_string(priority) +
+                                  " is full (depth " + std::to_string(maxQueueDepth_) + ").");
+                }
+                throw std::runtime_error("ThreadPool queue full at priority " + std::to_string(priority));
             }
 
             tasksByPriority_[priority].emplace([task]() { (*task)(); });

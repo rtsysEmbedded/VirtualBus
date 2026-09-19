@@ -81,6 +81,42 @@ VB_TEST(ThreadPool_ClampsOutOfRangePriorityToHighest) {
     VB_CHECK(ran.load());
 }
 
+VB_TEST(ThreadPool_EnqueueThrowsWhenPriorityQueueIsFull) {
+    // maxQueueDepth=2 with a single, permanently-occupied worker: the
+    // first enqueue() call is picked up by the worker immediately (queue
+    // back to empty), the next 2 fill the one priority-1 queue to its
+    // cap, and the 4th must throw rather than growing the queue past
+    // maxQueueDepth.
+    ThreadPool pool(1, nullptr, /*maxQueueDepth=*/2);
+
+    std::atomic<bool> blockerRunning{false};
+    std::atomic<bool> releaseBlocker{false};
+    pool.enqueue(ThreadPool::kDefaultPriority, [&]() {
+        blockerRunning = true;
+        while (!releaseBlocker.load()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    });
+    while (!blockerRunning.load()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    // Worker is now stuck in the blocker; these two fill the queue at
+    // priority 1 to maxQueueDepth.
+    pool.enqueue(1, []() {});
+    pool.enqueue(1, []() {});
+
+    bool threw = false;
+    try {
+        pool.enqueue(1, []() {});
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    VB_CHECK(threw);
+
+    releaseBlocker = true;
+}
+
 int main() {
     return vbtest::runAll();
 }

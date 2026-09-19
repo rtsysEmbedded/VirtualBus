@@ -73,11 +73,19 @@ target_link_libraries(test_virtualbus_basic PRIVATE unicore_core)
 target_include_directories(test_virtualbus_basic PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 add_test(NAME test_virtualbus_basic COMMAND test_virtualbus_basic)
 
-# --- Regression test: ThreadPool must dispatch by priority, not plain FIFO ---
+# --- Regression test: ThreadPool must dispatch by priority, not plain FIFO,
+#     and must bound its per-priority queues ---
 add_executable(test_threadpool_priority test_threadpool_priority.cpp)
 target_link_libraries(test_threadpool_priority PRIVATE unicore_core)
 target_include_directories(test_threadpool_priority PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 add_test(NAME test_threadpool_priority COMMAND test_threadpool_priority)
+
+# --- Regression test: VirtualBus's per-task message queues must be bounded,
+#     with reject-new overflow handling reported via ReturnType::BUSY ---
+add_executable(test_virtualbus_overflow test_virtualbus_overflow.cpp)
+target_link_libraries(test_virtualbus_overflow PRIVATE unicore_core)
+target_include_directories(test_virtualbus_overflow PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME test_virtualbus_overflow COMMAND test_virtualbus_overflow)
 
 # --- Regression test: receiveMessage() must not keep a dangling reference
 #     into a task's queue after a concurrent detach() erases it ---
