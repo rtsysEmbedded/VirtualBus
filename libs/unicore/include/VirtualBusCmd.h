@@ -23,9 +23,6 @@ enum class CommandType {
  * @brief Class representing a virtual bus command.
  */
 class VirtualBusCmd {
-private:
-    std::shared_ptr<ILogger> logger_; ///< Logger instance for logging messages
-
 public:
     /**
      * @brief Default constructor for VirtualBusCmd.
@@ -114,6 +111,13 @@ protected:
     std::string commandString_;  ///< Command string representing the command details
     uint64_t timestamp_ = 0;  ///< Timestamp of the command
     CommandType type_;  ///< Type of the command
+    std::shared_ptr<ILogger> logger_;  ///< Logger instance for logging messages.
+                                        ///< Protected (not private) so derived
+                                        ///< command classes use this instance
+                                        ///< directly instead of declaring their
+                                        ///< own same-named member that shadows
+                                        ///< it and stays null (see
+                                        ///< InverterCommand history).
 
 private:
     std::shared_ptr<JsonCmdParser> parser_;  ///< Parser for JSON command parsing

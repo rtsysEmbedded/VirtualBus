@@ -1,22 +1,35 @@
-// Regression test for the logger-shadowing bug in SendTask/ReciveTask.
+// Regression test for the logger-shadowing bug in SendTask/ReciveTask, and
+// the matching bug in InverterCommand/VirtualBusCmd.
 //
-// Both classes used to declare their own private `logger_` member with
-// the same name as Task's own (then-private) `logger_` member. The
-// subclass copy shadowed the base one, was default-constructed to
-// nullptr, and was never assigned from the constructor argument -- so
-// every `if (logger_) logger_->info(...)` inside SendTask::run() and
-// ReceiveTask::start()/onMessageReceived() silently did nothing, no
-// matter what logger the caller passed in. That's also exactly the
-// pattern the project's own usage docs show users how to copy, so any
-// task written by following the README inherited the same bug.
+// SendTask and ReceiveTask each used to declare their own private
+// `logger_` member with the same name as Task's own (then-private)
+// `logger_` member. The subclass copy shadowed the base one, was
+// default-constructed to nullptr, and was never assigned from the
+// constructor argument -- so every `if (logger_) logger_->info(...)`
+// inside SendTask::run() and ReceiveTask::start()/onMessageReceived()
+// silently did nothing, no matter what logger the caller passed in.
+// That's also exactly the pattern the project's own usage docs show users
+// how to copy, so any task written by following the README inherited the
+// same bug.
 //
 // Task::logger_ is now protected and the subclasses no longer declare
 // their own copy, so this exercises the real SendTask/ReceiveTask classes
 // from src/ and checks the logger actually passed in by the caller is the
 // one that receives the log messages.
+//
+// InverterCommand had the identical shadowing pattern one level down, in
+// VirtualBusCmd: InverterCommand declared its own private `logger_` and
+// constructed its base with `VirtualBusCmd()` -- no logger argument at
+// all -- so every base-class method (updateTimestamp(), setParser(),
+// parse(), printBase(), the destructor) always logged through a null
+// logger_ regardless of what was passed to InverterCommand's own
+// constructor. VirtualBusCmd::logger_ is now protected, InverterCommand
+// no longer shadows it, and its constructor forwards the logger to the
+// base class.
 #include "test_framework.h"
 
 #include "ILogger.h"
+#include "InverterCommand.h"
 #include "ReciveTask.h"
 #include "SendTask.h"
 #include "VirtualBus.h"
@@ -86,6 +99,24 @@ VB_TEST(SendTask_LogsThroughInjectedLogger) {
     sender.join();
 
     VB_CHECK(logger->anyContains("SendTask: Sent InverterCommand"));
+}
+
+VB_TEST(InverterCommand_PropagatesLoggerToBaseClass) {
+    auto logger = std::make_shared<RecordingLogger>();
+    InverterCommand cmd(logger);
+
+    // VirtualBusCmd's constructor logs through the base class's own
+    // logger_ member. Before the fix this was always dropped for an
+    // InverterCommand: its shadow `logger_` member did get the logger
+    // assigned, but the base was constructed with `VirtualBusCmd()` --
+    // no logger passed through at all.
+    VB_CHECK(logger->anyContains("VirtualBusCmd: Command created with default type Json."));
+
+    // InverterCommand's own constructor logs through the same identifier,
+    // which already worked before the fix (its shadow copy was correctly
+    // assigned) and must keep working now that the identifier resolves to
+    // the inherited member instead.
+    VB_CHECK(logger->anyContains("InverterCommand: Initialized with mode Charging."));
 }
 
 int main() {

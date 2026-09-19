@@ -14,9 +14,6 @@
  * @brief Class representing an inverter command.
  */
 class InverterCommand : public VirtualBusCmd {
-private:
-    std::shared_ptr<ILogger> logger_; ///< Logger instance for logging messages
-
 public:
     /**
      * @brief Enumeration representing inverter mode.
@@ -32,7 +29,7 @@ public:
      *
      * @param[in] logger A shared pointer to a logger instance for logging messages.
      */
-    InverterCommand(std::shared_ptr<ILogger> logger = nullptr) : VirtualBusCmd(), logger_(logger) {
+    InverterCommand(std::shared_ptr<ILogger> logger = nullptr) : VirtualBusCmd(logger) {
         type = CommandType::Inverter;
         mode = Mode::Charging; // Default mode
         if (logger_) {
