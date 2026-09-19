@@ -19,6 +19,11 @@ if(BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
+option(BUILD_BENCHMARKS "Build the VirtualBus performance benchmarks" ON)
+if(BUILD_BENCHMARKS)
+    add_subdirectory(benchmarks)
+endif()
+
 set(INTERNAL_LIB_DIR "${CMAKE_SOURCE_DIR}/libs")
 set(INTERNAL_INC_DIR "${INTERNAL_LIB_DIR}/unicore/include")
 
