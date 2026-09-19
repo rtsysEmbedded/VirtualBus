@@ -144,18 +144,24 @@ void VirtualBus::sendMessage(int senderId, const std::shared_ptr<VirtualBusCmd>&
  */
 bool VirtualBus::receiveMessage(int taskId, std::shared_ptr<VirtualBusCmd>& message) {
     std::unique_lock<std::mutex> lock(busMutex_);
-    auto it = tasks_.find(taskId);
-    if (it == tasks_.end()) {
+    if (tasks_.find(taskId) == tasks_.end()) {
         if (logger_) {
             logger_->warn("VirtualBus: Task ID " + std::to_string(taskId) + " not found.");
         }
         return false; // Task not found
     }
 
-    auto& taskInfo = it->second;
-    auto& queue = taskInfo.messageQueue;
-
-    busConditionVariable_.wait(lock, [&queue, this] { return !queue.empty() || !running_; });
+    // wait() releases busMutex_ while parked, so a concurrent detach() can
+    // erase this task's entry (and its messageQueue) out from under us at
+    // any point before we reacquire the lock. Re-look-up the task by id on
+    // every predicate check instead of capturing a reference to its queue
+    // once: capturing `auto& queue = it->second.messageQueue;` here used to
+    // leave the predicate holding a dangling reference into freed
+    // unordered_map storage if detach() ran mid-wait.
+    busConditionVariable_.wait(lock, [this, taskId] {
+        auto it = tasks_.find(taskId);
+        return !running_ || it == tasks_.end() || !it->second.messageQueue.empty();
+    });
 
     if (!running_) {
         if (logger_) {
@@ -164,6 +170,15 @@ bool VirtualBus::receiveMessage(int taskId, std::shared_ptr<VirtualBusCmd>& mess
         return false;
     }
 
+    auto it = tasks_.find(taskId);
+    if (it == tasks_.end()) {
+        if (logger_) {
+            logger_->warn("VirtualBus: Task ID " + std::to_string(taskId) + " was detached while waiting for a message.");
+        }
+        return false;
+    }
+
+    auto& queue = it->second.messageQueue;
     if (!queue.empty()) {
         message = queue.front();
         queue.pop();

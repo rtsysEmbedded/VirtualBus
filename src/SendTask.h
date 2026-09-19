@@ -16,9 +16,6 @@
  * @brief Class representing a task for sending inverter commands to the virtual bus.
  */
 class SendTask : public Task {
-private:
-    std::shared_ptr<ILogger> logger_; ///< Logger instance for logging messages
-
 public:
     /**
      * @brief Constructor for SendTask.

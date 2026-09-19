@@ -16,9 +16,6 @@
  * @brief Class representing a task for receiving commands from the virtual bus.
  */
 class ReceiveTask : public Task {
-private:
-    std::shared_ptr<ILogger> logger_; ///< Logger instance for logging messages
-
 public:
     /**
      * @brief Constructor for ReceiveTask.

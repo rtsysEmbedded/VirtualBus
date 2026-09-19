@@ -18,23 +18,27 @@ public:
     /**
      * @brief Generates a new unique task identifier.
      * @return A unique task identifier.
+     *
+     * The counter is a function-local static rather than a header-defined
+     * `static std::atomic<int> lastID_;` member. A member defined directly
+     * in the header is a non-inline definition: it links fine as long as
+     * Task.h is #included into only one .cpp file, but a second .cpp that
+     * also includes it (e.g. any translation unit beyond the one pulling
+     * in SendTask.h/ReciveTask.h) causes a "multiple definition" link
+     * error. A function-local static inside this implicitly-inline member
+     * function is guaranteed by the standard to be a single instance
+     * across all translation units.
      */
     static int getID() {
+        static std::atomic<int> lastID_{0};
         return lastID_++;
     }
-
-    static std::atomic<int> lastID_;  ///< Static atomic variable to keep track of the last task ID
 };
-
-std::atomic<int> TaskID::lastID_{0};
 
 /**
  * @brief Abstract base class representing a generic task.
  */
 class Task {
-private:
-    std::shared_ptr<ILogger> logger_; ///< Logger instance for logging messages
-
 public:
     /**
      * @brief Constructor to initialize a task with a name and attach it to the virtual bus.
@@ -125,6 +129,13 @@ protected:
     std::atomic<bool> running_;  ///< Flag to indicate if the task is running
     std::thread thread_;  ///< Thread for executing the task
     int id_;  ///< Unique identifier for the task
+    std::shared_ptr<ILogger> logger_;  ///< Logger instance for logging messages.
+                                        ///< Protected (not private) so derived
+                                        ///< task classes use this instance
+                                        ///< directly instead of declaring their
+                                        ///< own same-named member that shadows
+                                        ///< it and stays null (see
+                                        ///< SendTask/ReceiveTask history).
 };
 
 #endif // TASK_H

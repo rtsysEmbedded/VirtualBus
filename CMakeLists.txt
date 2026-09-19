@@ -13,6 +13,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(USE_SPDLOG ON CACHE BOOL "enable spd log for logging")
 
+option(BUILD_TESTS "Build the VirtualBus unit tests" ON)
+if(BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
+
 set(INTERNAL_LIB_DIR "${CMAKE_SOURCE_DIR}/libs")
 set(INTERNAL_INC_DIR "${INTERNAL_LIB_DIR}/unicore/include")
 
