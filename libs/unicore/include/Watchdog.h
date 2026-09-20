@@ -1,178 +1,136 @@
-/* Updated to match AUTOSAR Adaptive Naming and Commenting Conventions */
-#include "VirtualBus.h"
-#include "ErrorHandler.h"
+#ifndef WATCHDOG_H
+#define WATCHDOG_H
+
+#include "IClock.h"
 #include "ILogger.h"
 
+#include <atomic>
+#include <condition_variable>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <unordered_map>
+
 /**
- * @brief Constructor for VirtualBus that initializes the bus as running and creates a thread pool.
+ * @brief Liveness watchdog: participants (typically Task instances, see
+ * Task.h's watchdog_/kickWatchdog()) register with a timeout and must call
+ * kick() at least that often; a participant that doesn't gets reported to
+ * a caller-supplied handler.
  *
- * @param[in] logger A shared pointer to a logger instance for logging messages.
- */
-VirtualBus::VirtualBus(std::shared_ptr<ILogger> logger)
-    : running_(true), threadPool_(std::thread::hardware_concurrency(), logger), logger_(logger) {
-    if (logger_) {
-        logger_->info("VirtualBus: Initialized with " + std::to_string(std::thread::hardware_concurrency()) + " worker threads.");
-    }
-}
-
-/**
- * @brief Destructor for VirtualBus that shuts down the bus.
- */
-VirtualBus::~VirtualBus() {
-    shutdown();
-    if (logger_) {
-        logger_->info("VirtualBus: Shut down.");
-    }
-}
-
-/**
- * @brief Attaches a task to the virtual bus.
+ * This exists because a hung callback or a task stuck in an infinite loop
+ * doesn't otherwise announce itself -- see the ThreadPool-saturation
+ * scenario this project's own tests found (a callback that never returns
+ * can exhaust every worker thread), which is exactly the kind of failure
+ * a watchdog is for catching in the first place.
  *
- * @param[in] taskId The identifier of the task.
- * @param[in] taskName The name of the task.
- */
-ReturnType VirtualBus::attach(int taskId, const std::string& taskName) {
-    std::lock_guard<std::mutex> lock(busMutex_);
-    if (tasks_.find(taskId) != tasks_.end()) {
-        if (logger_) {
-            logger_->warn("VirtualBus: Task ID " + std::to_string(taskId) + " already exists.");
-        }
-        ErrorHandler::handleError("VirtualBus", "Task ID already exists.", ErrorHandler::ErrorSeverity::WARNING);
-        return ReturnType::INVALID_ARGUMENT;
-    }
-    tasks_[taskId] = TaskInfo{taskName, std::queue<std::shared_ptr<VirtualBusCmd>>(), nullptr};
-    if (logger_) {
-        logger_->info("VirtualBus: Task " + taskName + " (ID: " + std::to_string(taskId) + ") attached to the bus.");
-    }
-    return ReturnType::OK;
-}
-
-/**
- * @brief Detaches a task from the virtual bus.
+ * Deliberately decoupled from any specific response to a timeout: the
+ * default is just a logged error, not an automatic std::terminate() or
+ * task restart, because forcibly tearing down the process is not always
+ * the right reaction and shouldn't be silently baked into a general-
+ * purpose class. Wire in whatever response fits via setTimeoutHandler(),
+ * for example escalating through ErrorHandler:
  *
- * @param[in] taskId The identifier of the task to be detached.
- */
-void VirtualBus::detach(int taskId) {
-    std::lock_guard<std::mutex> lock(busMutex_);
-    auto it = tasks_.find(taskId);
-    if (it != tasks_.end()) {
-        std::string taskName = it->second.name;
-        tasks_.erase(it);
-        if (logger_) {
-            logger_->info("VirtualBus: Task " + taskName + " (ID: " + std::to_string(taskId) + ") detached from the bus.");
-        }
-    }
-}
-
-/**
- * @brief Registers a callback function for a specific task.
+ *     watchdog.setTimeoutHandler([logger](int id, const std::string& name) {
+ *         ErrorHandler::handleError("Watchdog", name + " (id " +
+ *             std::to_string(id) + ") failed to check in",
+ *             ErrorHandler::ErrorSeverity::CRITICAL, logger);
+ *     });
  *
- * @param[in] taskId The identifier of the task.
- * @param[in] callback The callback function to be registered.
+ * Takes an IClock (defaults to a real-time SystemClock) so timeout logic
+ * can be driven by a VirtualClock in tests without real waiting for the
+ * full timeout duration -- though the background monitor thread still
+ * polls on real wall-clock time at checkInterval, since a
+ * condition_variable has no notion of a virtual clock; see the class's
+ * tests for how to work with that.
  */
-void VirtualBus::registerCallback(int taskId, CallbackFunction callback) {
-    std::lock_guard<std::mutex> lock(busMutex_);
-    auto it = tasks_.find(taskId);
-    if (it != tasks_.end()) {
-        it->second.callback = callback;
-        if (logger_) {
-            logger_->info("VirtualBus: Callback registered for task ID " + std::to_string(taskId));
-        }
-    }
-}
+class Watchdog {
+public:
+    using TimeoutHandler = std::function<void(int id, const std::string& name)>;
 
-/**
- * @brief Sends a message from a sender to the virtual bus.
- *
- * @param[in] senderId The identifier of the sender.
- * @param[in] message The message to be sent.
- */
-void VirtualBus::sendMessage(int senderId, const std::shared_ptr<VirtualBusCmd>& message) {
-    std::vector<std::function<void()>> callbacksToInvoke;
+    /**
+     * @brief Constructor for Watchdog.
+     *
+     * @param[in] clock Time source for evaluating timeouts; defaults to a real-time SystemClock.
+     * @param[in] logger A shared pointer to a logger instance for logging messages.
+     * @param[in] checkInterval How often the background monitor thread wakes up to check for timeouts. Real wall-clock time regardless of `clock`.
+     */
+    explicit Watchdog(std::shared_ptr<IClock> clock = nullptr,
+                       std::shared_ptr<ILogger> logger = nullptr,
+                       std::chrono::milliseconds checkInterval = std::chrono::milliseconds(100));
 
-    {
-        std::lock_guard<std::mutex> lock(busMutex_);
-        auto senderIt = tasks_.find(senderId);
-        std::string senderName = (senderIt != tasks_.end()) ? senderIt->second.name : "Unknown";
+    /**
+     * @brief Destructor; stops the monitor thread if still running.
+     */
+    ~Watchdog();
 
-        if (logger_) {
-            logger_->info("VirtualBus: Task " + senderName + " (ID: " + std::to_string(senderId) + ") is sending a message.");
-        }
+    Watchdog(const Watchdog&) = delete;
+    Watchdog& operator=(const Watchdog&) = delete;
 
-        for (auto& [taskId, taskInfo] : tasks_) {
-            if (taskId != senderId) {
-                taskInfo.messageQueue.push(message);
+    /**
+     * @brief Registers (or re-registers) a participant to be monitored.
+     *
+     * @param[in] id Unique identifier for the participant (e.g. a Task's id).
+     * @param[in] name Human-readable name, used in logs and the timeout handler.
+     * @param[in] timeout How long this participant may go without calling kick() before it's reported as timed out.
+     */
+    void registerParticipant(int id, const std::string& name, std::chrono::milliseconds timeout);
 
-                // Collect callbacks to invoke
-                if (taskInfo.callback) {
-                    auto callback = taskInfo.callback;
-                    auto msg = message;
-                    callbacksToInvoke.push_back([callback, msg]() {
-                        callback(msg);
-                    });
-                }
-            }
-        }
-    }
+    /**
+     * @brief Stops monitoring a participant.
+     * @param[in] id Identifier previously passed to registerParticipant().
+     */
+    void unregisterParticipant(int id);
 
-    busConditionVariable_.notify_all();
+    /**
+     * @brief Proves a participant is still alive. Also clears that
+     * participant's timed-out flag, so a participant that recovers after
+     * being reported can be monitored (and re-reported) again.
+     *
+     * @param[in] id Identifier previously passed to registerParticipant(). A kick() for an unknown id is silently ignored.
+     */
+    void kick(int id);
 
-    // Enqueue callbacks to the thread pool
-    for (auto& func : callbacksToInvoke) {
-        threadPool_.enqueue(func);
-    }
-}
+    /**
+     * @brief Sets the handler invoked (on the monitor thread, outside any
+     * internal lock) when a participant times out. Replaces any
+     * previously set handler. Safe to call kick()/registerParticipant()/
+     * unregisterParticipant() (including for the timed-out participant
+     * itself) from within the handler.
+     */
+    void setTimeoutHandler(TimeoutHandler handler);
 
-/**
- * @brief Receives a message for a specific task from the virtual bus.
- *
- * @param[in] taskId The identifier of the task.
- * @param[out] message The message received by the task.
- * @return True if a message is received, otherwise false.
- */
-bool VirtualBus::receiveMessage(int taskId, std::shared_ptr<VirtualBusCmd>& message) {
-    std::unique_lock<std::mutex> lock(busMutex_);
-    auto it = tasks_.find(taskId);
-    if (it == tasks_.end()) {
-        if (logger_) {
-            logger_->warn("VirtualBus: Task ID " + std::to_string(taskId) + " not found.");
-        }
-        return false; // Task not found
-    }
+    /**
+     * @brief Starts the background monitor thread. No-op if already running.
+     */
+    void start();
 
-    auto& taskInfo = it->second;
-    auto& queue = taskInfo.messageQueue;
+    /**
+     * @brief Stops the background monitor thread and joins it. No-op if not running.
+     */
+    void stop();
 
-    busConditionVariable_.wait(lock, [&queue, this] { return !queue.empty() || !running_; });
+private:
+    struct ParticipantInfo {
+        std::string name;
+        uint64_t timeoutMs;
+        uint64_t lastKickMs;
+        bool timedOutAlready = false;
+    };
 
-    if (!running_) {
-        if (logger_) {
-            logger_->info("VirtualBus: Bus is no longer running.");
-        }
-        return false;
-    }
+    void monitorLoop();
 
-    if (!queue.empty()) {
-        message = queue.front();
-        queue.pop();
-        if (logger_) {
-            logger_->info("VirtualBus: Message received for task ID " + std::to_string(taskId));
-        }
-        return true;
-    }
-    return false;
-}
+    std::shared_ptr<IClock> clock_;
+    std::shared_ptr<ILogger> logger_;
+    std::chrono::milliseconds checkInterval_;
+    TimeoutHandler timeoutHandler_;
 
-/**
- * @brief Shuts down the virtual bus.
- */
-void VirtualBus::shutdown() {
-    {
-        std::lock_guard<std::mutex> lock(busMutex_);
-        running_ = false;
-    }
-    busConditionVariable_.notify_all();
-    if (logger_) {
-        logger_->info("VirtualBus: Shutting down.");
-    }
-}
+    std::unordered_map<int, ParticipantInfo> participants_;
+    std::mutex mutex_;
+    std::condition_variable cv_; ///< Lets stop() wake the monitor thread promptly instead of waiting out checkInterval_
+    std::atomic<bool> running_;
+    std::thread monitorThread_;
+};
+
+#endif // WATCHDOG_H

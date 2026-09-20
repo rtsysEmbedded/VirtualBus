@@ -1,14 +1,39 @@
 /* Updated to match AUTOSAR Adaptive Naming and Commenting Conventions */
 #include "ThreadPool.h"
 
+bool ThreadPool::hasPendingTaskLocked() const {
+    for (const auto& queue : tasksByPriority_) {
+        if (!queue.empty()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::function<void()> ThreadPool::popNextTaskLocked() {
+    // kNumPriorityLevels - 1 is the highest priority; scan downward so a
+    // worker always prefers the highest-priority non-empty queue.
+    for (size_t i = kNumPriorityLevels; i-- > 0;) {
+        auto& queue = tasksByPriority_[i];
+        if (!queue.empty()) {
+            std::function<void()> task = std::move(queue.front());
+            queue.pop();
+            return task;
+        }
+    }
+    // Unreachable if the caller checked hasPendingTaskLocked() first.
+    return std::function<void()>();
+}
+
 /**
  * @brief Constructor for ThreadPool that initializes worker threads.
  *
  * @param[in] numThreads Number of threads to create in the pool.
  * @param[in] logger A shared pointer to a logger instance for logging messages.
+ * @param[in] maxQueueDepth Cap on each per-priority dispatch queue.
  */
-ThreadPool::ThreadPool(size_t numThreads, std::shared_ptr<ILogger> logger)
-    : stop_(false), logger_(logger) {
+ThreadPool::ThreadPool(size_t numThreads, std::shared_ptr<ILogger> logger, size_t maxQueueDepth)
+    : logger_(logger), stop_(false), maxQueueDepth_(maxQueueDepth) {
     for (size_t i = 0; i < numThreads; ++i) {
         workers_.emplace_back(
             [this] {
@@ -17,11 +42,10 @@ ThreadPool::ThreadPool(size_t numThreads, std::shared_ptr<ILogger> logger)
                     {
                         std::unique_lock<std::mutex> lock(this->queueMutex_);
                         this->condition_.wait(lock,
-                            [this] { return this->stop_ || !this->tasks_.empty(); });
-                        if (this->stop_ && this->tasks_.empty())
+                            [this] { return this->stop_ || this->hasPendingTaskLocked(); });
+                        if (this->stop_ && !this->hasPendingTaskLocked())
                             return;
-                        task = std::move(this->tasks_.front());
-                        this->tasks_.pop();
+                        task = this->popNextTaskLocked();
                     }
                     if (logger_) {
                         logger_->info("ThreadPool: Executing task.");

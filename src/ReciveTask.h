@@ -16,9 +16,6 @@
  * @brief Class representing a task for receiving commands from the virtual bus.
  */
 class ReceiveTask : public Task {
-private:
-    std::shared_ptr<ILogger> logger_; ///< Logger instance for logging messages
-
 public:
     /**
      * @brief Constructor for ReceiveTask.
@@ -26,9 +23,16 @@ public:
      * @param[in] bus The virtual bus reference.
      * @param[in] id Task identifier.
      * @param[in] logger A shared pointer to a logger instance for logging messages.
+     * @param[in] watchdog Optional watchdog (see Task's constructor); left
+     * null, this task isn't monitored, same as before this parameter existed.
+     * @param[in] watchdogTimeout How long this task may run without an
+     * iteration completing before the watchdog reports it. Only meaningful
+     * when `watchdog` is non-null.
      */
-    ReceiveTask(const std::string& name, VirtualBus& bus, std::shared_ptr<ILogger> logger = nullptr)
-        : Task(name,bus,logger) {}
+    ReceiveTask(const std::string& name, VirtualBus& bus, std::shared_ptr<ILogger> logger = nullptr,
+                std::shared_ptr<Watchdog> watchdog = nullptr,
+                std::chrono::milliseconds watchdogTimeout = std::chrono::milliseconds(5000))
+        : Task(name, bus, logger, std::move(watchdog), watchdogTimeout) {}
 
     /**
      * @brief Starts the task and registers a callback to handle incoming messages.
@@ -50,6 +54,7 @@ protected:
      */
     void run() override {
         while (running_) {
+            kickWatchdog();
             // Perform other tasks if needed
             if (logger_) {
                 logger_->info("ReceiveTask: Running...");

@@ -61,11 +61,40 @@ public:
                     batteryCommand->setMaxVoltage(jsonData["Voltage"]["MAX"].get<uint16_t>());
                     if (logger_) logger_->info("BatteryCommandParser: Set Voltage MAX to " + std::to_string(jsonData["Voltage"]["MAX"].get<uint16_t>()));
                 }
+                if (jsonData["Voltage"].contains("AVG")) {
+                    batteryCommand->setMeanVoltage(jsonData["Voltage"]["AVG"].get<uint16_t>());
+                    if (logger_) logger_->info("BatteryCommandParser: Set Voltage AVG to " + std::to_string(jsonData["Voltage"]["AVG"].get<uint16_t>()));
+                }
             }
 
-            if (jsonData.contains("SOC") && jsonData["SOC"].contains("AVG")) {
-                batteryCommand->setMeanSOC(jsonData["SOC"]["AVG"].get<uint32_t>());
-                if (logger_) logger_->info("BatteryCommandParser: Set SOC AVG to " + std::to_string(jsonData["SOC"]["AVG"].get<uint32_t>()));
+            if (jsonData.contains("SOC")) {
+                if (jsonData["SOC"].contains("AVG")) {
+                    batteryCommand->setMeanSOC(jsonData["SOC"]["AVG"].get<uint32_t>());
+                    if (logger_) logger_->info("BatteryCommandParser: Set SOC AVG to " + std::to_string(jsonData["SOC"]["AVG"].get<uint32_t>()));
+                }
+                if (jsonData["SOC"].contains("MIN")) {
+                    batteryCommand->setMinSOC(jsonData["SOC"]["MIN"].get<uint16_t>());
+                    if (logger_) logger_->info("BatteryCommandParser: Set SOC MIN to " + std::to_string(jsonData["SOC"]["MIN"].get<uint16_t>()));
+                }
+                if (jsonData["SOC"].contains("MAX")) {
+                    batteryCommand->setMaxSOC(jsonData["SOC"]["MAX"].get<uint16_t>());
+                    if (logger_) logger_->info("BatteryCommandParser: Set SOC MAX to " + std::to_string(jsonData["SOC"]["MAX"].get<uint16_t>()));
+                }
+            }
+
+            if (jsonData.contains("Current")) {
+                if (jsonData["Current"].contains("AVG")) {
+                    batteryCommand->setMeanCurrent(jsonData["Current"]["AVG"].get<int32_t>());
+                    if (logger_) logger_->info("BatteryCommandParser: Set Current AVG to " + std::to_string(jsonData["Current"]["AVG"].get<int32_t>()));
+                }
+                if (jsonData["Current"].contains("MIN")) {
+                    batteryCommand->setMinCurrent(jsonData["Current"]["MIN"].get<int32_t>());
+                    if (logger_) logger_->info("BatteryCommandParser: Set Current MIN to " + std::to_string(jsonData["Current"]["MIN"].get<int32_t>()));
+                }
+                if (jsonData["Current"].contains("MAX")) {
+                    batteryCommand->setMaxCurrent(jsonData["Current"]["MAX"].get<int32_t>());
+                    if (logger_) logger_->info("BatteryCommandParser: Set Current MAX to " + std::to_string(jsonData["Current"]["MAX"].get<int32_t>()));
+                }
             }
 
             return true;

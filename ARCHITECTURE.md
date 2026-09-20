@@ -13,7 +13,8 @@ Comprehensive documentation of the VirtualBus system design, components, and int
 7. [Design Patterns](#design-patterns)
 8. [State Diagrams](#state-diagrams)
 9. [Performance Considerations](#performance-considerations)
-10. [Extension Points](#extension-points)
+10. [Distributed Variant](#distributed-variant)
+11. [Extension Points](#extension-points)
 
 ---
 
@@ -46,7 +47,7 @@ Comprehensive documentation of the VirtualBus system design, components, and int
 ┌──────────────────────────▼──────────────────────────────────┐
 │                   Foundation Layer                          │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │
-│  │  ThreadPool  │  │  Watchdog    │  │  Diagnostic      │  │
+│  │  ThreadPool  │  │  IClock      │  │  Watchdog        │  │
 │  └──────────────┘  └──────────────┘  └──────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -649,11 +650,29 @@ std::lock_guard<std::mutex> lock(mutex_);  // Acquires lock
 
 ### Memory Usage Optimization
 
-1. **Message Pool** (if needed):
+1. **Message Pool** (`libs/unicore/include/ObjectPool.h`):
+   `sendMessage()` never copies a message's payload -- every receiver gets
+   a `shared_ptr` to the same `VirtualBusCmd` instance -- but a plain
+   `make_shared<SomeCommand>()` on the send hot path is still a heap
+   allocation per message. `ObjectPool<T>` removes that: a fixed-capacity
+   set of pre-allocated `T` slots, handed out via `acquire()` as a
+   `shared_ptr<T>` constructed with placement-new, whose custom deleter
+   returns the slot to the pool's free list instead of calling `delete`.
    ```cpp
-   // Pre-allocate message objects
-   std::vector<Message> pool(1000);
+   ObjectPool<InverterCommand> pool(64);
+   auto cmd = pool.acquire(logger);   // placement-new into a pooled slot
+   if (!cmd) {
+       // pool exhausted: reject-new, same policy as VirtualBus's own
+       // bounded queues (ReturnType::BUSY) -- no implicit heap fallback.
+   }
+   bus.sendMessage(senderId, cmd);    // cmd's slot is returned to the
+                                       // pool once every shared_ptr to it
+                                       // (including copies handed to
+                                       // receivers) goes out of scope.
    ```
+   The pool must outlive every `shared_ptr<T>` it has handed out, since
+   each object's storage lives inside the pool itself rather than being
+   separately heap-allocated.
 
 2. **String Interning**:
    ```cpp
@@ -680,6 +699,74 @@ std::lock_guard<std::mutex> lock(mutex_);  // Acquires lock
 3. **Thread Scheduling**:
    - More threads → More context switches
    - Balance with number of CPU cores
+
+---
+
+## Distributed Variant
+
+Every VirtualBus instance is otherwise fully independent -- attach/send/
+receive only ever operate on tasks attached to that one instance. The
+distributed variant (`libs/unicore/include/ITransport.h`,
+`LoopbackTransport.h`, `TcpTransport.h`, `CommandFactory.h`,
+`RemoteBridge.h`) keeps two separate VirtualBus instances -- in separate
+processes, or separate machines -- in sync for the traffic each side
+chooses to forward, without changing VirtualBus itself at all: a
+`RemoteBridge` simply attaches to a bus as an ordinary task.
+
+```
+┌─────────────────────┐                              ┌─────────────────────┐
+│   Process A          │                              │   Process B          │
+│  ┌────────────────┐  │                              │  ┌────────────────┐  │
+│  │   VirtualBus A  │  │                              │  │   VirtualBus B  │  │
+│  │                 │  │                              │  │                 │  │
+│  │  TaskX  TaskY   │  │                              │  │  TaskP  TaskQ   │  │
+│  │     \    /      │  │                              │  │     \    /      │  │
+│  │   RemoteBridge──┼──┼── ITransport (Tcp/Loopback) ─┼──┼──RemoteBridge   │  │
+│  └────────────────┘  │                              │  └────────────────┘  │
+└─────────────────────┘                              └─────────────────────┘
+```
+
+**Forwarding direction (local → remote)**: `RemoteBridge` registers a
+callback for every local broadcast, the same mechanism any other task
+would use. It serializes each message into a small JSON envelope
+(`{"type", "priority", "payload"}`, where `payload` comes from
+`VirtualBusCmd::serializePayload()`) and hands it to the `ITransport`.
+
+**Delivery direction (remote → local)**: on each envelope the transport
+receives, `RemoteBridge` asks its `CommandFactory` to default-construct
+the concrete command type named by `"type"`, calls
+`deserializePayload()` on it, and re-broadcasts it locally with the
+bridge's own id as sender.
+
+**Why this can't loop**: VirtualBus already never delivers a broadcast
+back to its own sender. Using the bridge's own id as the sender for a
+re-injected message means the bridge never receives its own re-injection
+back through its own callback, so it never forwards a message it just
+received from the remote side straight back out to that same side -- no
+"already relayed" marker needed in the envelope. This reasoning depends
+on exactly one `RemoteBridge` per bus per remote peer; see
+`RemoteBridge.h`'s class doc comment for the two-bridges-on-one-bus case
+this does *not* cover.
+
+**CommandFactory** exists so `libs/unicore` (where `RemoteBridge` lives)
+never depends on concrete application-layer command types
+(`InverterCommand`, `BatteryStateCmd`, ...): the application registers
+its own types into a `CommandFactory` instance at startup and hands it
+to each `RemoteBridge`. A message whose type has no registration, or
+whose payload `deserializePayload()` rejects, is logged and dropped --
+never delivered partially populated.
+
+**Transports**: `LoopbackTransport` connects two in-process instances
+for deterministic tests (`tests/test_remote_bridge.cpp`'s main
+scenarios). `TcpTransport` is a real point-to-point transport over a TCP
+socket (4-byte length-prefix framing), one side listening
+(`createListener()`), the other connecting (`createConnector()`) --
+proven end-to-end in
+`RemoteBridge_WorksOverARealTcpTransportNotJustInProcess`. A message
+sent while the transport isn't yet connected is dropped, not queued --
+consistent with the project's existing reject-new treatment of a
+receiver that isn't currently ready (see Performance/overflow handling
+above).
 
 ---
 
@@ -743,6 +830,23 @@ class XmlCmdParser {
     static std::shared_ptr<VirtualBusCmd> parse(const std::string& xml);
 };
 ```
+
+### 6. Distributed Transports
+
+**Implement ITransport** (see the Distributed Variant section above) to
+carry RemoteBridge envelopes over something other than TCP or in-process
+loopback -- a serial link, a CAN transport, a message queue:
+```cpp
+class SerialTransport : public ITransport {
+    bool send(const std::string& bytes) override { /* write to UART */ }
+    void setReceiveHandler(ReceiveHandler handler) override { handler_ = handler; }
+    void start() override { /* spin up the reader thread */ }
+    void stop() override { /* join it */ }
+};
+```
+Delivery to the receive handler must always be asynchronous relative to
+the sending side's `send()` call, on the implementation's own thread --
+see `ITransport.h`'s class doc comment for why.
 
 ---
 
