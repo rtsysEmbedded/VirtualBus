@@ -85,7 +85,8 @@ VirtualBus/
 │   │   ├── DiagnosticTask.h      # Diagnostic utilities
 │   │   ├── IClock.h              # Clock interface (injectable time source)
 │   │   ├── SystemClock.h         # Real-time IClock implementation
-│   │   └── VirtualClock.h        # Settable/advanceable IClock for tests
+│   │   ├── VirtualClock.h        # Settable/advanceable IClock for tests
+│   │   └── Watchdog.h            # Task liveness monitoring (kick()/timeout reporting)
 │   │
 │   └── src/                      # Implementation files
 │       ├── VirtualBus.cpp

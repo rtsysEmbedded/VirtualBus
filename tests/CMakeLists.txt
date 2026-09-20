@@ -16,6 +16,7 @@ add_library(unicore_core STATIC
     ${UNICORE_SRC_DIR}/ThreadPool.cpp
     ${UNICORE_SRC_DIR}/ErrorHandler.cpp
     ${UNICORE_SRC_DIR}/VirtualBusCmd.cpp
+    ${UNICORE_SRC_DIR}/Watchdog.cpp
 )
 target_include_directories(unicore_core PUBLIC ${UNICORE_INCLUDE_DIR} ${NLOHMANN_INCLUDE_DIR})
 target_link_libraries(unicore_core PUBLIC pthread)
@@ -86,6 +87,12 @@ add_executable(test_virtualbus_overflow test_virtualbus_overflow.cpp)
 target_link_libraries(test_virtualbus_overflow PRIVATE unicore_core)
 target_include_directories(test_virtualbus_overflow PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 add_test(NAME test_virtualbus_overflow COMMAND test_virtualbus_overflow)
+
+# --- Regression test: Watchdog liveness monitoring and its Task integration ---
+add_executable(test_watchdog test_watchdog.cpp)
+target_link_libraries(test_watchdog PRIVATE unicore_core)
+target_include_directories(test_watchdog PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME test_watchdog COMMAND test_watchdog)
 
 # --- Regression test: receiveMessage() must not keep a dangling reference
 #     into a task's queue after a concurrent detach() erases it ---

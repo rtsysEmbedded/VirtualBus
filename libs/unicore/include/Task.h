@@ -2,12 +2,14 @@
 #ifndef TASK_H
 #define TASK_H
 
+#include <chrono>
 #include <string>
 #include <thread>
 #include <atomic>
 #include "VirtualBus.h"
 #include "ILogger.h"
 #include "ErrorHandler.h"
+#include "Watchdog.h"
 #include <memory>
 
 /**
@@ -46,9 +48,18 @@ public:
      * @param[in] name The name of the task.
      * @param[in] bus Reference to the virtual bus the task will use.
      * @param[in] logger A shared pointer to a logger instance for logging messages.
+     * @param[in] watchdog Optional watchdog to register with on start() and
+     * feed via kickWatchdog(). Left null (the default), the task is not
+     * monitored at all -- every existing call site is unaffected.
+     * @param[in] watchdogTimeout How long this task may go without calling
+     * kickWatchdog() before the watchdog reports it. Only meaningful when
+     * `watchdog` is non-null.
      */
-    Task(const std::string& name, VirtualBus& bus, std::shared_ptr<ILogger> logger = nullptr)
-        : name_(name), bus_(bus), running_(false), logger_(logger) {
+    Task(const std::string& name, VirtualBus& bus, std::shared_ptr<ILogger> logger = nullptr,
+         std::shared_ptr<Watchdog> watchdog = nullptr,
+         std::chrono::milliseconds watchdogTimeout = std::chrono::milliseconds(5000))
+        : name_(name), bus_(bus), running_(false), logger_(logger),
+          watchdog_(std::move(watchdog)), watchdogTimeout_(watchdogTimeout) {
             id_ = TaskID::getID();
             if (logger_) {
                 logger_->info("Task: Initialized task " + name_ + " with ID " + std::to_string(id_));
@@ -66,11 +77,17 @@ public:
     }
 
     /**
-     * @brief Starts the task by creating a new thread.
+     * @brief Starts the task by creating a new thread. Registers with the
+     * watchdog (if one was given) before the thread starts, so a task that
+     * never calls kickWatchdog() at all is still caught by the watchdog's
+     * timeout rather than going unmonitored until its first kick.
      */
     virtual void start() {
         if (!running_) {
             running_ = true;
+            if (watchdog_) {
+                watchdog_->registerParticipant(id_, name_, watchdogTimeout_);
+            }
             thread_ = std::thread(&Task::run, this);
             if (logger_) {
                 logger_->info("Task: Started task " + name_);
@@ -97,6 +114,9 @@ public:
         if (running_) {
             running_ = false;
             bus_.detach(id_);
+            if (watchdog_) {
+                watchdog_->unregisterParticipant(id_);
+            }
             if (thread_.joinable()) {
                 thread_.join();
             }
@@ -124,6 +144,18 @@ protected:
      */
     virtual void run() = 0;
 
+    /**
+     * @brief Proves this task is still alive, if a watchdog was given at
+     * construction. No-op otherwise -- safe to call unconditionally from
+     * run() regardless of whether this particular Task instance has a
+     * watchdog, so a subclass's loop doesn't need its own null check.
+     */
+    void kickWatchdog() {
+        if (watchdog_) {
+            watchdog_->kick(id_);
+        }
+    }
+
     std::string name_;  ///< The name of the task
     VirtualBus& bus_;  ///< Reference to the virtual bus the task interacts with
     std::atomic<bool> running_;  ///< Flag to indicate if the task is running
@@ -136,6 +168,8 @@ protected:
                                         ///< own same-named member that shadows
                                         ///< it and stays null (see
                                         ///< SendTask/ReceiveTask history).
+    std::shared_ptr<Watchdog> watchdog_;  ///< Optional watchdog this task registers with; null means unmonitored.
+    std::chrono::milliseconds watchdogTimeout_;  ///< Timeout passed to watchdog_->registerParticipant() in start().
 };
 
 #endif // TASK_H

@@ -46,7 +46,7 @@ Comprehensive documentation of the VirtualBus system design, components, and int
 ┌──────────────────────────▼──────────────────────────────────┐
 │                   Foundation Layer                          │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │
-│  │  ThreadPool  │  │  IClock      │  │  Diagnostic      │  │
+│  │  ThreadPool  │  │  IClock      │  │  Watchdog        │  │
 │  └──────────────┘  └──────────────┘  └──────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 ```
