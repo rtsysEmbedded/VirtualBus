@@ -120,6 +120,21 @@ VB_TEST(InverterCommand_PropagatesLoggerToBaseClass) {
     VB_CHECK(logger->anyContains("InverterCommand: Initialized with mode Charging."));
 }
 
+VB_TEST(InverterCommand_GetTypeReportsInverterNotShadowedDefault) {
+    // Same shadowing bug class as logger_ above, but for the command
+    // type: InverterCommand used to declare its own public
+    // `CommandType type;` member and set *that* in its constructor,
+    // never touching the inherited (protected) type_ that getType()
+    // actually reads. getType() therefore always returned
+    // VirtualBusCmd's default CommandType::Json for every InverterCommand,
+    // silently dead-ending the `cmd->getType() == CommandType::Inverter`
+    // dispatch in ReceiveTask::onMessageReceived() (ReciveTask.h) --
+    // found via tests/test_object_pool.cpp's ObjectPool smoke test on a
+    // real InverterCommand, not by inspection.
+    InverterCommand cmd;
+    VB_CHECK(cmd.getType() == CommandType::Inverter);
+}
+
 VB_TEST(BatteryStateCmd_PropagatesLoggerToBaseClass) {
     auto logger = std::make_shared<RecordingLogger>();
     BatteryStateCmd cmd(logger);

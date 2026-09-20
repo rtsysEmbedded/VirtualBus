@@ -86,7 +86,8 @@ VirtualBus/
 │   │   ├── IClock.h              # Clock interface (injectable time source)
 │   │   ├── SystemClock.h         # Real-time IClock implementation
 │   │   ├── VirtualClock.h        # Settable/advanceable IClock for tests
-│   │   └── Watchdog.h            # Task liveness monitoring (kick()/timeout reporting)
+│   │   ├── Watchdog.h            # Task liveness monitoring (kick()/timeout reporting)
+│   │   └── ObjectPool.h          # Zero-copy variant: pre-allocated object pool (placement-new, no heap alloc on the send hot path)
 │   │
 │   └── src/                      # Implementation files
 │       ├── VirtualBus.cpp

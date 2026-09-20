@@ -22,7 +22,6 @@ public:
 
     double current = 0.0;  ///< Current value in amperes
     double voltage = 0.0;  ///< Voltage value in volts
-    CommandType type;
 
     /**
      * @brief Default constructor initializing command type as Inverter and default mode as Charging.
@@ -30,7 +29,17 @@ public:
      * @param[in] logger A shared pointer to a logger instance for logging messages.
      */
     InverterCommand(std::shared_ptr<ILogger> logger = nullptr) : VirtualBusCmd(logger) {
-        type = CommandType::Inverter;
+        // Sets the inherited protected type_ (read back via getType()), not
+        // a same-named member of its own -- a public `CommandType type;`
+        // used to shadow it here the same way logger_ was shadowed
+        // elsewhere in this codebase (see logger_ history above): the
+        // constructor set that shadow field and getType() kept returning
+        // VirtualBusCmd's default CommandType::Json forever, silently
+        // dead-ending the `cmd->getType() == CommandType::Inverter` branch
+        // in ReceiveTask::onMessageReceived() for every real
+        // InverterCommand. Caught by ObjectPool_AcquireConstructsA...'s
+        // getType() check in tests/test_object_pool.cpp.
+        type_ = CommandType::Inverter;
         mode = Mode::Charging; // Default mode
         if (logger_) {
             logger_->info("InverterCommand: Initialized with mode Charging.");

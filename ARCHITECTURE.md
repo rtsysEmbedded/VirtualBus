@@ -649,11 +649,29 @@ std::lock_guard<std::mutex> lock(mutex_);  // Acquires lock
 
 ### Memory Usage Optimization
 
-1. **Message Pool** (if needed):
+1. **Message Pool** (`libs/unicore/include/ObjectPool.h`):
+   `sendMessage()` never copies a message's payload -- every receiver gets
+   a `shared_ptr` to the same `VirtualBusCmd` instance -- but a plain
+   `make_shared<SomeCommand>()` on the send hot path is still a heap
+   allocation per message. `ObjectPool<T>` removes that: a fixed-capacity
+   set of pre-allocated `T` slots, handed out via `acquire()` as a
+   `shared_ptr<T>` constructed with placement-new, whose custom deleter
+   returns the slot to the pool's free list instead of calling `delete`.
    ```cpp
-   // Pre-allocate message objects
-   std::vector<Message> pool(1000);
+   ObjectPool<InverterCommand> pool(64);
+   auto cmd = pool.acquire(logger);   // placement-new into a pooled slot
+   if (!cmd) {
+       // pool exhausted: reject-new, same policy as VirtualBus's own
+       // bounded queues (ReturnType::BUSY) -- no implicit heap fallback.
+   }
+   bus.sendMessage(senderId, cmd);    // cmd's slot is returned to the
+                                       // pool once every shared_ptr to it
+                                       // (including copies handed to
+                                       // receivers) goes out of scope.
    ```
+   The pool must outlive every `shared_ptr<T>` it has handed out, since
+   each object's storage lives inside the pool itself rather than being
+   separately heap-allocated.
 
 2. **String Interning**:
    ```cpp

@@ -94,6 +94,12 @@ target_link_libraries(test_watchdog PRIVATE unicore_core)
 target_include_directories(test_watchdog PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 add_test(NAME test_watchdog COMMAND test_watchdog)
 
+# --- Regression test: ObjectPool<T> (zero-copy variant building block) ---
+add_executable(test_object_pool test_object_pool.cpp)
+target_link_libraries(test_object_pool PRIVATE unicore_core app_commands)
+target_include_directories(test_object_pool PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${APP_SRC_DIR})
+add_test(NAME test_object_pool COMMAND test_object_pool)
+
 # --- Regression test: receiveMessage() must not keep a dangling reference
 #     into a task's queue after a concurrent detach() erases it ---
 # Compiled as a standalone binary with its own copy of VirtualBus.cpp/
