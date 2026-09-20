@@ -1,19 +1,19 @@
 # Deducing `this` (Explicit Object Parameters)
 
-**Proposal:** [P0847R7](https://wg21.link/P0847R7) — پذیرفته‌شده در C++23.
+**Proposal:** [P0847R7](https://wg21.link/P0847R7) — accepted in C++23.
 
-## ۱. مسئله در نسخه‌های قبلی
+## 1. The problem in older standards
 
-پیش از C++23، پارامتر ضمنی `this` که هر متد عضو دریافت می‌کند **قابل template-deduce شدن نیست** و باید برای هر ترکیب از cv-qualifier (`const`/non-const) و ref-qualifier (`&`/`&&`) یک overload جداگانه نوشته شود. این باعث سه مشکل واقعی می‌شود:
+Before C++23, the implicit `this` parameter that every member function receives **could not be deduced by templates**, and had to be covered by a separate overload for every combination of cv-qualifier (`const`/non-const) and ref-qualifier (`&`/`&&`). This caused three real problems:
 
-1. **تکرار کد (boilerplate)**: برای پیاده‌سازی یک getter که هم روی lvalue و هم rvalue، هم const و هم non-const درست کار کند، باید ۴ overload بنویسید:
+1. **Boilerplate**: to write a getter that works correctly on lvalues and rvalues, both const and non-const, you had to write 4 overloads:
    `T& get() &`, `const T& get() const &`, `T&& get() &&`, `const T&& get() const &&`.
-2. **CRTP (Curiously Recurring Template Pattern) برای static polymorphism**: برای اینکه یک کلاس پایه به متد مشتق‌شده دسترسی پیدا کند بدون virtual dispatch، باید کلاس پایه را template کرد و مشتق را از طریق `static_cast<Derived*>(this)` بازیابی کرد — الگویی پیچیده، با پیام‌های خطای طولانی، و نیازمند دانش پیشرفته از template metaprogramming.
-3. **پیاده‌سازی recursive lambda**: تا C++20، lambda نمی‌تواند خودش را مستقیم صدا بزند چون نامی برای ارجاع به خودش ندارد؛ راه‌حل رایج استفاده از `std::function` (با هزینه‌ی type-erasure و heap allocation) یا `Y-combinator` دستی بود.
+2. **CRTP (Curiously Recurring Template Pattern) for static polymorphism**: for a base class to call a method on the derived class without virtual dispatch, the base class had to be a template, and the derived object recovered via `static_cast<Derived*>(this)` — a pattern that is hard to read, produces long error messages, and requires advanced template-metaprogramming knowledge.
+3. **Recursive lambdas**: up to C++20, a lambda could not call itself directly, because it has no name to refer to itself with. The common workaround was `std::function` (with the cost of type erasure and heap allocation), or a manual Y-combinator.
 
-## ۲. مکانیزم Deducing `this`
+## 2. How deducing `this` works
 
-C++23 اجازه می‌دهد اولین پارامتر یک متد عضو **به‌صراحت** نوشته شود و با کلیدواژه‌ی `this` علامت‌گذاری شود:
+C++23 lets you write the first parameter of a member function **explicitly**, marked with the `this` keyword:
 
 ```cpp
 struct Widget {
@@ -22,31 +22,31 @@ struct Widget {
 };
 ```
 
-نکات فنی:
+Key technical points:
 
-- کامپایلر نوع `Self` را از نوع واقعی شیءِ فراخوان‌کننده استنتاج می‌کند — دقیقاً مثل universal reference در توابع آزاد. این یعنی یک تابع واحد می‌تواند جایگزین تمام ۴ overload بالا شود.
-- **CRTP بدون template پایه**: کلاس پایه دیگر نیازی به template‌شدن ندارد؛ متد پایه با `this Self&& self` نوشته می‌شود و `Self` در زمان فراخوان به نوع مشتق‌شده‌ی واقعی resolve می‌شود — بدون `static_cast` دستی و بدون نیاز به forward-declare کردن مشتق.
-- **Recursive lambda**: lambda می‌تواند اولین پارامتر خودش را `this auto&& self` بگیرد و با `self(...)` خودش را صدا بزند — بدون `std::function` و بدون هزینه‌ی type erasure.
-- از نظر ABI، این یک پارامتر واقعی (nameable) است، نه یک پوینتر ضمنی؛ به همین دلیل قوانین معمول template argument deduction (شامل `const`/`&`/`&&`) روی آن اعمال می‌شود.
+- The compiler deduces the type `Self` from the actual type of the calling object — exactly like a universal reference in a free function. This means one single function can replace all 4 overloads above.
+- **CRTP without a templated base**: the base class no longer needs to be a template. The base method is written with `this Self&& self`, and `Self` is resolved at the call site to the actual derived type — no manual `static_cast` and no need to forward-declare the derived type.
+- **Recursive lambdas**: a lambda can take its own first parameter as `this auto&& self` and call itself with `self(...)` — no `std::function`, no type-erasure cost.
+- ABI-wise, this is a real, nameable parameter, not an implicit pointer. So the usual template argument deduction rules (including `const`/`&`/`&&`) apply to it.
 
-## ۳. مقایسه در مثال‌ها
+## 3. Comparing the examples
 
 `examples/legacy.cpp`:
-- پیاده‌سازی getter با ۴ overload دستی برای پوشش کامل cv/ref-qualifier.
-- پیاده‌سازی CRTP سنتی برای static polymorphism (کلاس پایه‌ی template‌شده + `static_cast<Derived*>(this)`).
-- پیاده‌سازی recursive lambda با `std::function` (هزینه‌ی heap allocation).
+- A getter implemented with 4 manual overloads to fully cover cv/ref-qualifiers.
+- A classic CRTP implementation for static polymorphism (templated base class + `static_cast<Derived*>(this)`).
+- A recursive lambda implemented with `std::function` (heap allocation cost).
 
 `examples/modern.cpp`:
-- همان getter با یک تابع template واحد با `this Self&&`.
-- همان CRTP بدون template کردن کلاس پایه.
-- همان recursive lambda با `this auto&& self`، بدون `std::function`.
+- The same getter with a single member template using `this Self&&`.
+- The same CRTP pattern without templating the base class.
+- The same recursive lambda using `this auto&& self`, no `std::function` needed.
 
-## ۴. جمع‌بندی فنی
+## 4. Technical summary
 
-| معیار | روش قدیمی | Deducing `this` |
+| Criterion | Old approach | Deducing `this` |
 |---|---|---|
-| تعداد overload برای پوشش کامل cv/ref | ۴ | ۱ |
-| نیاز به template کردن کلاس پایه برای CRTP | بله | خیر |
-| Recursive lambda بدون heap allocation | خیر (`std::function`) | بله |
-| خوانایی کد generic | پایین (چهار نسخه‌ی تقریباً یکسان) | بالا (یک تعریف) |
-| خطر عدم‌همگام‌سازی overload‌ها هنگام تغییر منطق | بالا | صفر (یک نقطه‌ی تغییر) |
+| Overloads needed for full cv/ref coverage | 4 | 1 |
+| Base class must be templated for CRTP | yes | no |
+| Recursive lambda without heap allocation | no (`std::function`) | yes |
+| Readability of generic code | low (four near-identical versions) | high (one definition) |
+| Risk of overloads drifting out of sync when logic changes | high | zero (a single change point) |

@@ -1,46 +1,46 @@
-# `std::expected<T, E>` — مدیریت خطا بدون exception و بدون out-parameter
+# `std::expected<T, E>` — Error Handling Without Exceptions or Out-Parameters
 
-**Proposal:** [P0323R12](https://wg21.link/P0323R12) — پذیرفته‌شده در C++23، هدر `<expected>`.
+**Proposal:** [P0323R12](https://wg21.link/P0323R12) — accepted in C++23, header `<expected>`.
 
-## ۱. مسئله در نسخه‌های قبلی
+## 1. The problem in older standards
 
-در C++17/۱۴ برای برگرداندن «یا یک مقدار معتبر یا یک خطا» از یک تابع، معمولاً یکی از این راه‌ها استفاده می‌شد:
+Before C++23, returning "either a valid value or an error" from a function usually meant one of these:
 
-1. **پرتاب Exception** — هزینه‌ی runtime قابل توجه (unwinding)، غیرقابل استفاده در کد real-time/embedded که exception غیرفعال است (`-fno-exceptions`)، و مسیر خطا در امضای تابع دیده نمی‌شود.
-2. **کد خطای برگشتی + out-parameter** (سبک C): `bool parse(const std::string&, int& out)`. مشکل: فراموش‌کردن بررسی مقدار برگشتی توسط فراخوان یک باگ رایج و بی‌صدا است؛ کامپایلر هیچ اجباری اعمال نمی‌کند.
-3. **`std::pair<bool, T>` یا `std::optional<T>`** — `optional` فقط می‌گوید «مقدار وجود ندارد»، اما **دلیل** نبودن مقدار (چه خطایی رخ داد) را حمل نمی‌کند.
-4. **`std::variant<T, ErrorCode>`** — از نظر تئوری شبیه `expected` است، اما API آن (`std::visit`, `std::get_if`) برای این الگوی خاص طراحی نشده و monadic composition (`and_then`, `or_else`) ندارد.
+1. **Throwing an exception** — noticeable runtime cost (stack unwinding), unusable in real-time/embedded code where exceptions are disabled (`-fno-exceptions`), and the error path is invisible in the function signature.
+2. **Return code + out-parameter (C style)**: `bool parse(const std::string&, int& out)`. Problem: the caller forgetting to check the return value is a common, silent bug. The compiler does not enforce anything.
+3. **`std::pair<bool, T>` or `std::optional<T>`** — `optional` only says "there is no value," but it does **not** carry the **reason** why the value is missing.
+4. **`std::variant<T, ErrorCode>`** — conceptually similar to `expected`, but its API (`std::visit`, `std::get_if`) was not designed for this exact pattern, and it has no monadic composition (`and_then`, `or_else`).
 
-نتیجه: در embedded/سیستم‌های real-time (دقیقاً حوزه‌ای که این ریپازیتوری—VirtualBus—در آن قرار دارد، جایی که CANopen/MQTT با شکست‌های قابل پیش‌بینی سروکار دارند)، معمولاً از کدهای خطای عددی خام استفاده می‌شود که type-safety صفر دارند و به‌سادگی نادیده گرفته می‌شوند.
+Result: in embedded/real-time systems (exactly the domain this repository — VirtualBus — lives in, where CANopen/MQTT deal with predictable failure modes), raw numeric error codes are commonly used. They have zero type safety and are easy to ignore.
 
-## ۲. مکانیزم `std::expected`
+## 2. How `std::expected` works
 
-`std::expected<T, E>` یک union-like type است (شبیه `variant` اما محدود به دقیقاً دو حالت) که یا:
+`std::expected<T, E>` is a union-like type (similar to `variant`, but limited to exactly two states) that holds either:
 
-- مقدار از نوع `T` را در حالت موفق نگه می‌دارد (`has_value() == true`)، یا
-- مقدار خطای از نوع `E` را نگه می‌دارد که با `std::unexpected<E>` ساخته می‌شود.
+- a value of type `T` on success (`has_value() == true`), or
+- an error value of type `E`, constructed with `std::unexpected<E>`.
 
-نکات فنی مهم:
+Key technical points:
 
-- **بدون heap allocation**: برخلاف `std::variant`، پیاده‌سازی `expected` تضمین می‌کند که `T` و `E` inline (روی استک/داخل شیء) ذخیره می‌شوند؛ هیچ تخصیص دینامیک اضافه‌ای رخ نمی‌دهد — این برای کد embedded حیاتی است.
-- **Monadic operations**: متدهای `and_then`, `transform`, `or_else`, `transform_error` امکان زنجیره‌کردن عملیات‌های ممکن‌الشکست را بدون تودرتویی `if` فراهم می‌کنند — دقیقاً مشابه الگوی `Result<T, E>` در Rust یا `Either` در Haskell.
-- **دسترسی به خطا**: `error()` فقط زمانی defined-behavior دارد که `has_value() == false`؛ در غیر این‌صورت UB است (در حالت دیباگ معمولاً assert می‌شود).
-- **بدون هزینه‌ی exception**: می‌توان کاملاً با `-fno-exceptions` کامپایل کرد، چون هیچ throw/catch در مسیر داخلی `expected` وجود ندارد.
-- **در امضای تابع دیده می‌شود**: `std::expected<Config, ParseError> parseConfig(...)` به‌صراحت می‌گوید تابع می‌تواند شکست بخورد و کامپایلر فراخوان را مجبور می‌کند با مقدار برگشتی تعامل کند (نادیده‌گرفتن `[[nodiscard]]` warning می‌دهد چون `expected` این attribute را دارد).
+- **No heap allocation**: unlike `std::variant`, the `expected` implementation guarantees that `T` and `E` are stored inline (on the stack/inside the object); there is no extra dynamic allocation. This matters a lot for embedded code.
+- **Monadic operations**: `and_then`, `transform`, `or_else`, and `transform_error` let you chain fallible operations without nested `if` statements — the same pattern as `Result<T, E>` in Rust or `Either` in Haskell.
+- **Accessing the error**: `error()` is only well-defined when `has_value() == false`; otherwise it is undefined behavior (usually an assert in debug builds).
+- **No exception overhead**: it can be compiled fully with `-fno-exceptions`, because there is no throw/catch anywhere in `expected`'s internals.
+- **Visible in the function signature**: `std::expected<Config, ParseError> parseConfig(...)` explicitly says the function can fail, and the compiler forces the caller to interact with the return value (ignoring it produces a warning, because `expected` is marked `[[nodiscard]]`).
 
-## ۳. مقایسه در مثال‌ها
+## 3. Comparing the examples
 
-فایل `examples/legacy.cpp`: پارس یک رشته‌ی عددی با روش‌های پیش از C++23 (کد خطای دستی + `errno` سبک C، و نسخه‌ی exception-based) — و نشان می‌دهد چرا فراموش‌کردن بررسی خطا کامپایل می‌شود بدون هیچ هشداری.
+`examples/legacy.cpp`: parses a numeric string using pre-C++23 approaches (manual error code + C-style `errno`, and an exception-based version) — and shows why forgetting to check the error compiles cleanly with no warning at all.
 
-فایل `examples/modern.cpp`: همان منطق با `std::expected`، شامل زنجیره‌ی `and_then` برای ترکیب چند عملیات ممکن‌الشکست، و نشان می‌دهد که نادیده‌گرفتن مقدار `[[nodiscard]]` warning تولید می‌کند.
+`examples/modern.cpp`: the same logic with `std::expected`, including an `and_then` chain that composes several fallible steps, and shows that ignoring the `[[nodiscard]]` return value produces a compiler warning.
 
-## ۴. جمع‌بندی فنی
+## 4. Technical summary
 
-| معیار | روش قدیمی (کد خطا/out-param) | روش قدیمی (Exception) | `std::expected` |
+| Criterion | Old approach (error code / out-param) | Old approach (exceptions) | `std::expected` |
 |---|---|---|---|
-| هزینه‌ی مسیر موفق | صفر | صفر | صفر (inline storage) |
-| هزینه‌ی مسیر خطا | صفر | بالا (stack unwinding) | صفر |
-| اجبار کامپایلری به بررسی خطا | خیر | خیر (تا زمان catch) | بله (`[[nodiscard]]`) |
-| قابل استفاده بدون RTTI/exceptions | بله | خیر | بله |
-| قابلیت ترکیب (composability) | ضعیف | متوسط (try/catch تودرتو) | بالا (`and_then`/`or_else`) |
-| اطلاعات خطا در امضای تابع | خیر (فقط با کامنت) | خیر | بله (نوع `E` صریح است) |
+| Cost on the success path | zero | zero | zero (inline storage) |
+| Cost on the error path | zero | high (stack unwinding) | zero |
+| Compiler-enforced error check | no | no (until a `catch`) | yes (`[[nodiscard]]`) |
+| Usable without RTTI/exceptions | yes | no | yes |
+| Composability | weak | medium (nested try/catch) | strong (`and_then`/`or_else`) |
+| Error info visible in signature | no (only via a comment) | no | yes (explicit `E` type) |

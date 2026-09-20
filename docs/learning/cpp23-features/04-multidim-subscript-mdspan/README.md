@@ -1,46 +1,46 @@
-# Multidimensional `operator[]` و `std::mdspan`
+# Multidimensional `operator[]` and `std::mdspan`
 
-**Proposals:** [P2128R6](https://wg21.link/P2128R6) (multiple subscript operands) و [P0009R18](https://wg21.link/P0009R18) (`std::mdspan`) — هر دو در C++23.
+**Proposals:** [P2128R6](https://wg21.link/P2128R6) (multiple subscript operands) and [P0009R18](https://wg21.link/P0009R18) (`std::mdspan`) — both in C++23.
 
-## ۱. مسئله در نسخه‌های قبلی
+## 1. The problem in older standards
 
-پیش از C++23، `operator[]` می‌توانست **دقیقاً یک** آرگومان بگیرد (میراثی از C که آرایه‌ها تک‌بعدی هستند). برای داده‌های چندبعدی (ماتریس، تصویر، بافر sensor چندکاناله — دقیقاً نوع داده‌ای که در پردازش سیگنال یا CANopen PDO چندکاناله دیده می‌شود) توسعه‌دهندگان مجبور بودند یکی از این راه‌ها را انتخاب کنند:
+Before C++23, `operator[]` could take **exactly one** argument (inherited from C, where arrays are one-dimensional). For multidimensional data (matrices, images, multi-channel sensor buffers — exactly the kind of data you see in signal processing or a multi-channel CANopen PDO), developers had to pick one of these:
 
-1. **`operator()(i, j)` به‌جای `operator[]`**: کار می‌کند، اما از نظر معنایی گمراه‌کننده است — `()` معمولاً برای «فراخوانی» به کار می‌رود نه «دسترسی به عنصر»، و با کانتینرهای استاندارد ناسازگار به نظر می‌رسد.
-2. **`operator[](i)[j]`**: نیازمند این است که نوع، یک آرایه‌ی آرایه (`T**` یا `vector<vector<T>>`) باشد. این یعنی هر ردیف یک تخصیص heap جداگانه دارد — cache-unfriendly (حافظه پیوسته نیست) و overhead تخصیص برای هر ردیف.
-3. **محاسبه‌ی دستی index خطی**: `data[row * numCols + col]` — کار می‌کند و cache-friendly است، اما **بدون type-safety**؛ فراموش‌کردن ترتیب `row`/`col` یا اشتباه در فرمول محاسبه، یک باگ خاموش تولید می‌کند که کامپایلر هیچ‌وقت آن را تشخیص نمی‌دهد.
+1. **`operator()(i, j)` instead of `operator[]`**: works, but is semantically misleading — `()` usually means "call," not "access an element," and it looks inconsistent with standard containers.
+2. **`operator[](i)[j]`**: requires the type to be an array-of-arrays (`T**` or `vector<vector<T>>`). This means each row is a separate heap allocation — cache-unfriendly (memory is not contiguous) and adds allocation overhead per row.
+3. **Manual flat-index arithmetic**: `data[row * numCols + col]` — works and is cache-friendly, but has **no type safety**. Forgetting the order of `row`/`col`, or getting the stride formula wrong, produces a silent bug that the compiler will never catch.
 
-همچنین، پیش از C++23 هیچ **view** استانداردی برای «نمایش چندبعدی روی یک بافر پیوسته‌ی موجود» وجود نداشت — یعنی نمی‌شد بدون کپی، یک `float*` خام را به‌صورت type-safe به شکل ماتریس ۲بعدی دید.
+Also, before C++23 there was no standard **view** for "look at an existing contiguous buffer as multidimensional data" — you could not treat a raw `float*` as a type-safe 2D matrix without copying it.
 
-## ۲. مکانیزم جدید
+## 2. How the new features work
 
-**(الف) Multidimensional `operator[]`** — از این پس امضای `operator[]` می‌تواند چند پارامتر بگیرد:
+**(a) Multidimensional `operator[]`** — the signature of `operator[]` can now take multiple parameters:
 
 ```cpp
 T& operator[](std::size_t row, std::size_t col);
 ```
 
-این تغییر **فقط زبان (core language)** است؛ گرامر `[]` را از یک آرگومان به لیست آرگومان‌های جدا با کاما گسترش می‌دهد. کدی که قبلاً از `a[i][j]` استفاده می‌کرد (comma به‌عنوان دو subscript جدا) نیازی به تغییر ندارد، ولی نویسندگان کتابخانه اکنون می‌توانند `a[i, j]` بنویسند.
+This is a **core-language change only**; it extends the `[]` grammar from a single argument to a comma-separated argument list. Code that already used `a[i][j]` (two separate subscripts) does not need to change, but library authors can now also write `a[i, j]`.
 
-**(ب) `std::mdspan<T, Extents>`** — یک **non-owning view** روی یک بافر پیوسته‌ی موجود (شبیه `std::span` اما چندبعدی):
+**(b) `std::mdspan<T, Extents>`** — a **non-owning view** over an existing contiguous buffer (like `std::span`, but multidimensional):
 
-- **بدون کپی داده**: فقط یک پوینتر + متادیتای اندازه/stride نگه می‌دارد.
-- **Layout Policy قابل تنظیم**: `layout_right` (ردیف‌محور / C-style، پیش‌فرض)، `layout_left` (ستون‌محور / Fortran-style)، یا `layout_stride` سفارشی — بدون تغییر کد دسترسی به عنصر.
-- **Extents می‌تواند static یا dynamic باشد**: اگر ابعاد در زمان کامپایل معلوم باشند (`std::extents<size_t, 3, 3>`)، کامپایلر می‌تواند محاسبه‌ی index را کاملاً inline و بهینه کند — بدون هیچ سربار نسبت به آرایه‌ی دستی.
-- با multidimensional `operator[]` ترکیب می‌شود: `view[i, j]` دقیقاً همان محاسبه‌ی `data[i*cols+j]` را انجام می‌دهد اما type-safe و با bounds قابل‌بررسی (در حالت debug).
+- **No data copy**: it only holds a pointer plus size/stride metadata.
+- **Configurable layout policy**: `layout_right` (row-major / C-style, the default), `layout_left` (column-major / Fortran-style), or a custom `layout_stride` — without changing the element-access code.
+- **Extents can be static or dynamic**: if the dimensions are known at compile time (`std::extents<size_t, 3, 3>`), the compiler can fully inline the index computation — with zero overhead compared to a hand-written array.
+- Combines with the new multidimensional `operator[]`: `view[i, j]` performs exactly the same computation as `data[i*cols+j]`, but type-safe and with bounds that can be checked in debug builds.
 
-## ۳. مقایسه در مثال‌ها
+## 3. Comparing the examples
 
-`examples/legacy.cpp`: پیاده‌سازی ماتریس با `std::vector<std::vector<double>>` (تخصیص heap برای هر ردیف) و پیاده‌سازی جایگزین با محاسبه‌ی دستی index خطی روی یک بافر مسطح (بدون type-safety).
+`examples/legacy.cpp`: a matrix built with `std::vector<std::vector<double>>` (heap allocation per row), and an alternative built with manual flat-index arithmetic on a flat buffer (no type safety).
 
-`examples/modern.cpp`: همان ماتریس با `std::mdspan` روی یک `std::vector<double>` مسطح، دسترسی با `view[i, j]`، بدون کپی و بدون تخصیص heap اضافه.
+`examples/modern.cpp`: the same matrix using `std::mdspan` over a flat `std::vector<double>`, accessed with `view[i, j]`, with no copy and no extra heap allocation.
 
-## ۴. جمع‌بندی فنی
+## 4. Technical summary
 
-| معیار | `vector<vector<T>>` | index خطی دستی | `std::mdspan` + `operator[i,j]` |
+| Criterion | `vector<vector<T>>` | Manual flat index | `std::mdspan` + `operator[i,j]` |
 |---|---|---|---|
-| حافظه پیوسته (cache-friendly) | خیر | بله | بله |
-| تخصیص heap اضافه به‌ازای هر ردیف | بله | خیر | خیر (view، بدون owner) |
-| Type-safety در دسترسی چندبعدی | متوسط | خیر | بالا |
-| قابلیت تغییر layout بدون تغییر کد دسترسی | خیر | خیر | بله (`layout_left/right/stride`) |
-| هزینه‌ی runtime نسبت به دسترسی دستی | بالاتر (indirection) | صفر (baseline) | صفر (inline در `-O2`) |
+| Contiguous memory (cache-friendly) | no | yes | yes |
+| Extra heap allocation per row | yes | no | no (it's a view, not an owner) |
+| Type safety of multidimensional access | medium | no | high |
+| Can change layout without changing access code | no | no | yes (`layout_left/right/stride`) |
+| Runtime cost vs. manual access | higher (indirection) | zero (baseline) | zero (inlined at `-O2`) |

@@ -1,37 +1,37 @@
-# `std::generator<T>` — کوروتین‌های Lazy برای تولید توالی
+# `std::generator<T>` — Lazy Coroutine-Based Sequences
 
-**Proposal:** [P2502R2](https://wg21.link/P2502R2) — پذیرفته‌شده در C++23، هدر `<generator>` (بر پایه‌ی coroutines که در C++20 اضافه شدند).
+**Proposal:** [P2502R2](https://wg21.link/P2502R2) — accepted in C++23, header `<generator>` (built on coroutines, which arrived in C++20).
 
-## ۱. مسئله در نسخه‌های قبلی
+## 1. The problem in older standards
 
-تولید یک **توالی lazy** (مقادیری که یکی‌یکی و فقط در صورت نیاز محاسبه می‌شوند، نه همه‌شان از قبل) در C++17 و قبل‌تر سه گزینه‌ی ناقص داشت:
+Generating a **lazy sequence** (values computed one-at-a-time, only when needed, not all up front) in C++17 and earlier had three incomplete options:
 
-1. **محاسبه‌ی eager و ذخیره در `std::vector`**: کل توالی از قبل ساخته می‌شود، حتی اگر فراخوان فقط به چند عنصر اول نیاز داشته باشد — اتلاف حافظه و زمان CPU، و برای توالی‌های بی‌نهایت (مثل «همه‌ی اعداد اول») اصلاً امکان‌پذیر نیست.
-2. **نوشتن دستی یک کلاس Iterator سفارشی**: باید `operator++`, `operator*`, `operator==` و منطق نگه‌داری state بین فراخوان‌ها را دستی پیاده‌سازی کرد. برای منطق پیچیده (مثلاً traverse بازگشتی یک درخت)، state باید به‌صورت صریح روی heap نگه داشته شود (چون فراخوانی‌های تابع عادی نمی‌توانند «مکث» کنند و بعداً از همان‌جا ادامه یابند) — کد پیچیده، مستعد خطا، و دشوار برای نگهداری.
-3. **Callback/visitor pattern**: `void traverse(std::function<void(T)> callback)` — کار می‌کند اما کنترل جریان را وارونه می‌کند (inversion of control)؛ نوشتن `break` از وسط traverse، یا ترکیب چند traverse با هم (مثل `zip` یا `filter`)، بسیار دست‌وپاگیر می‌شود.
+1. **Eager generation and store in `std::vector`**: the entire sequence is computed first, even if the caller only needs the first few values — wasting memory and CPU. For infinite sequences (like "all prime numbers"), this approach is impossible.
+2. **Write a custom iterator class by hand**: you must manually implement `operator++`, `operator*`, `operator==`, and state-tracking. For complex logic (e.g., recursively traversing a tree), the state must be stored on the heap (because ordinary function calls cannot "pause" and resume later) — complex code, error-prone, hard to maintain.
+3. **Callback/visitor pattern**: `void traverse(std::function<void(T) callback)` — works, but inverts control flow (the caller cannot easily say "stop iterating" or combine two traversals with `zip`).
 
-## ۲. مکانیزم `std::generator`
+## 2. How `std::generator` works
 
-`std::generator<T>` یک coroutine return-type استاندارد است. تابعی که `std::generator<T>` برمی‌گرداند و از `co_yield` استفاده می‌کند، به‌صورت خودکار توسط کامپایلر به یک state machine تبدیل می‌شود:
+`std::generator<T>` is a standard coroutine return type. A function that returns `std::generator<T>` and uses `co_yield` is automatically transformed by the compiler into a state machine:
 
-- **اجرای Lazy**: بدنه‌ی تابع فقط تا اولین `co_yield` اجرا می‌شود؛ ادامه‌ی اجرا فقط وقتی فراخوان مقدار بعدی را از طریق iterator درخواست کند (`++it`) رخ می‌دهد.
-- **State به‌صورت خودکار روی heap نگه داشته می‌شود** (coroutine frame) — نویسنده دیگر نیازی به مدیریت دستی state ندارد؛ کامپایلر متغیرهای محلی و program counter را در frame کوروتین ذخیره می‌کند.
-- **سازگار با range-based for و `<ranges>`**: چون `std::generator<T>` مدل `input_range` را برآورده می‌کند، می‌توان مستقیماً با `for (auto x : gen())` یا با adaptor‌های `std::views` (`filter`, `take`, ...) ترکیبش کرد.
-- **پشتیبانی از توالی بی‌نهایت**: چون هیچ مقداری از قبل محاسبه نمی‌شود، نوشتن یک generator برای «همه‌ی اعداد فیبوناچی» یا «همه‌ی اعداد اول» کاملاً طبیعی است؛ فقط باید مصرف‌کننده با `take(n)` یا شرط توقف صریح، تعداد را محدود کند.
-- **هزینه**: یک تخصیص heap برای coroutine frame معمولاً وجود دارد (مگر کامپایلر بتواند HALO — Heap Allocation eLision Optimization — را اعمال کند)؛ این هزینه در ازای سادگی چشمگیر کد و جداسازی producer/consumer logic قابل قبول است، اما در مسیرهای بسیار حساس به تأخیر (hard real-time interrupt handler) باید آگاهانه ارزیابی شود.
+- **Lazy execution**: the function body runs only up to the first `co_yield`; the rest executes only when the caller requests the next value (via `++it`).
+- **Automatic state storage**: the coroutine frame (a compiler-generated structure on the heap) holds all local variables and the program counter. The programmer does not manually manage state.
+- **Compatible with ranges**: since `std::generator<T>` models an `input_range`, you can use it directly in range-based `for` loops and combine it with `std::views` (`filter`, `take`, etc.).
+- **Natural for infinite sequences**: writing a generator for "all Fibonacci numbers" or "all primes" is straightforward; only the caller decides how many to actually consume (e.g., with `std::views::take(n)`).
+- **Cost**: typically one heap allocation for the coroutine frame. This cost is acceptable for the dramatic simplification, but in hard real-time code (e.g., an interrupt handler) you should be aware.
 
-## ۳. مقایسه در مثال‌ها
+## 3. Comparing the examples
 
-`examples/legacy.cpp`: تولید توالی فیبوناچی به دو روش — (الف) eager با `std::vector` از پیش پر شده، (ب) یک کلاس Iterator دستی که state را به‌صورت صریح نگه می‌دارد.
+`examples/legacy.cpp`: generating a Fibonacci sequence two ways — (a) eager in `std::vector`, (b) a hand-written iterator that stores state explicitly.
 
-`examples/modern.cpp`: همان توالی فیبوناچی با `std::generator<unsigned long long>` و `co_yield`، مصرف‌شده با range-based for و ترکیب با `std::views::take`.
+`examples/modern.cpp`: the same sequence as a `std::generator<unsigned long long>` with `co_yield`, consumed with a range-based `for` loop and combined with `std::views::take`.
 
-## ۴. جمع‌بندی فنی
+## 4. Technical summary
 
-| معیار | Eager (`vector`) | Iterator دستی | `std::generator` + `co_yield` |
+| Criterion | Eager (`vector`) | Hand-written iterator | `std::generator` + `co_yield` |
 |---|---|---|---|
-| پشتیبانی از توالی بی‌نهایت | خیر | بله (با کد پیچیده) | بله (طبیعی) |
-| میزان کد لازم برای منطق پیچیده | کم (اما eager) | زیاد | کم |
-| مدیریت state | دستی (اگر پیچیده باشد) | دستی و صریح | خودکار (coroutine frame) |
-| ترکیب با `std::views` | بله (بعد از build کامل) | نیازمند adapter دستی | بله، مستقیم |
-| هزینه‌ی حافظه برای توالی‌های بزرگ | بالا (کل توالی) | پایین | پایین (فقط یک عنصر + frame) |
+| Supports infinite sequences | no | yes (with complex code) | yes (natural) |
+| Code complexity for complex logic | low (but eager) | high | low |
+| State management | manual (if dynamic) | manual and explicit | automatic (coroutine frame) |
+| Composition with `std::views` | yes (after building all) | requires custom adapters | yes, direct |
+| Memory cost for large sequences | high (whole sequence) | low | low (just one element + frame) |
