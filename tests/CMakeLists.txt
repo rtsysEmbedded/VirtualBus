@@ -17,6 +17,9 @@ add_library(unicore_core STATIC
     ${UNICORE_SRC_DIR}/ErrorHandler.cpp
     ${UNICORE_SRC_DIR}/VirtualBusCmd.cpp
     ${UNICORE_SRC_DIR}/Watchdog.cpp
+    ${UNICORE_SRC_DIR}/LoopbackTransport.cpp
+    ${UNICORE_SRC_DIR}/TcpTransport.cpp
+    ${UNICORE_SRC_DIR}/RemoteBridge.cpp
 )
 target_include_directories(unicore_core PUBLIC ${UNICORE_INCLUDE_DIR} ${NLOHMANN_INCLUDE_DIR})
 target_link_libraries(unicore_core PUBLIC pthread)
@@ -100,6 +103,38 @@ target_link_libraries(test_object_pool PRIVATE unicore_core app_commands)
 target_include_directories(test_object_pool PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${APP_SRC_DIR})
 add_test(NAME test_object_pool COMMAND test_object_pool)
 
+# --- Distributed variant: LoopbackTransport (ITransport) ---
+add_executable(test_transport_loopback test_transport_loopback.cpp)
+target_link_libraries(test_transport_loopback PRIVATE unicore_core)
+target_include_directories(test_transport_loopback PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME test_transport_loopback COMMAND test_transport_loopback)
+
+# --- Distributed variant: real POSIX-socket TcpTransport (ITransport) ---
+add_executable(test_tcp_transport test_tcp_transport.cpp)
+target_link_libraries(test_tcp_transport PRIVATE unicore_core)
+target_include_directories(test_tcp_transport PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME test_tcp_transport COMMAND test_tcp_transport)
+
+# --- Distributed variant: CommandFactory registry ---
+add_executable(test_command_factory test_command_factory.cpp)
+target_link_libraries(test_command_factory PRIVATE unicore_core app_commands)
+target_include_directories(test_command_factory PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${APP_SRC_DIR})
+add_test(NAME test_command_factory COMMAND test_command_factory)
+
+# --- Distributed variant: VirtualBusCmd::serializePayload()/deserializePayload()
+#     round trip for InverterCommand and BatteryStateCmd ---
+add_executable(test_payload_serialization test_payload_serialization.cpp)
+target_link_libraries(test_payload_serialization PRIVATE unicore_core app_commands)
+target_include_directories(test_payload_serialization PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${APP_SRC_DIR})
+add_test(NAME test_payload_serialization COMMAND test_payload_serialization)
+
+# --- Distributed variant: RemoteBridge end-to-end (two VirtualBus instances
+#     bridged over LoopbackTransport, plus one scenario over real TcpTransport) ---
+add_executable(test_remote_bridge test_remote_bridge.cpp)
+target_link_libraries(test_remote_bridge PRIVATE unicore_core app_commands)
+target_include_directories(test_remote_bridge PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${APP_SRC_DIR})
+add_test(NAME test_remote_bridge COMMAND test_remote_bridge)
+
 # --- Regression test: receiveMessage() must not keep a dangling reference
 #     into a task's queue after a concurrent detach() erases it ---
 # Compiled as a standalone binary with its own copy of VirtualBus.cpp/
@@ -115,7 +150,7 @@ add_executable(test_virtualbus_detach_race
     ${UNICORE_SRC_DIR}/ThreadPool.cpp
     ${UNICORE_SRC_DIR}/ErrorHandler.cpp
 )
-target_include_directories(test_virtualbus_detach_race PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${UNICORE_INCLUDE_DIR})
+target_include_directories(test_virtualbus_detach_race PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${UNICORE_INCLUDE_DIR} ${NLOHMANN_INCLUDE_DIR})
 target_link_libraries(test_virtualbus_detach_race PRIVATE pthread)
 
 # check_cxx_compiler_flag() alone isn't reliable here: it can report the

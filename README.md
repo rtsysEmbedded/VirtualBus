@@ -87,14 +87,22 @@ VirtualBus/
 │   │   ├── SystemClock.h         # Real-time IClock implementation
 │   │   ├── VirtualClock.h        # Settable/advanceable IClock for tests
 │   │   ├── Watchdog.h            # Task liveness monitoring (kick()/timeout reporting)
-│   │   └── ObjectPool.h          # Zero-copy variant: pre-allocated object pool (placement-new, no heap alloc on the send hot path)
+│   │   ├── ObjectPool.h          # Zero-copy variant: pre-allocated object pool (placement-new, no heap alloc on the send hot path)
+│   │   ├── ITransport.h          # Distributed variant: abstract byte-stream transport
+│   │   ├── LoopbackTransport.h   # In-process ITransport, for deterministic RemoteBridge tests
+│   │   ├── TcpTransport.h        # Real point-to-point ITransport over a TCP socket
+│   │   ├── CommandFactory.h      # CommandType -> concrete VirtualBusCmd subclass registry
+│   │   └── RemoteBridge.h        # Gateway: bridges a local VirtualBus to a remote peer over an ITransport
 │   │
 │   └── src/                      # Implementation files
 │       ├── VirtualBus.cpp
 │       ├── VirtualBusCmd.cpp
 │       ├── ThreadPool.cpp
 │       ├── ErrorHandler.cpp
-│       └── VirtualBusCmd.cpp
+│       ├── Watchdog.cpp
+│       ├── LoopbackTransport.cpp
+│       ├── TcpTransport.cpp
+│       └── RemoteBridge.cpp
 │
 ├── tests/                        # Unit tests
 ├── cmake/                        # CMake modules

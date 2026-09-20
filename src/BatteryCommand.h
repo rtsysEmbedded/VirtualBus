@@ -295,6 +295,61 @@ public:
     }
 
     /**
+     * @brief Serializes battery state for RemoteBridge forwarding.
+     *
+     * Reuses toJson() -- the same shape BatteryCommandParser already
+     * round-trips from an external JSON command source -- rather than a
+     * separate format.
+     */
+    nlohmann::json serializePayload() const override {
+        return toJson();
+    }
+
+    /**
+     * @brief Populates battery state fields from a peer's
+     * serializePayload() (i.e. a toJson()-shaped object).
+     *
+     * Reads the same fields BatteryCommandParser::parseParameters()
+     * reads from an external JSON command, applied here directly via the
+     * existing setters -- deliberately not routed through
+     * BatteryCommandParser itself, since that would need
+     * BatteryCommandParser.h, which is exactly the header cycle
+     * initializeParser() was split out-of-line to avoid (see its doc
+     * comment above).
+     * @return True unless `payload` isn't a JSON object at all.
+     */
+    bool deserializePayload(const nlohmann::json& payload) override {
+        if (!payload.is_object()) {
+            return false;
+        }
+        if (payload.contains("Cube_Num")) {
+            setNumberOfCubes(payload["Cube_Num"].get<uint8_t>());
+        }
+        if (payload.contains("Cube_OP")) {
+            setNumOfReadyCubes(payload["Cube_OP"].get<uint8_t>());
+        }
+        if (payload.contains("Voltage") && payload["Voltage"].is_object()) {
+            const auto& v = payload["Voltage"];
+            if (v.contains("MIN")) setMinVoltage(v["MIN"].get<uint16_t>());
+            if (v.contains("MAX")) setMaxVoltage(v["MAX"].get<uint16_t>());
+            if (v.contains("AVG")) setMeanVoltage(v["AVG"].get<uint16_t>());
+        }
+        if (payload.contains("SOC") && payload["SOC"].is_object()) {
+            const auto& soc = payload["SOC"];
+            if (soc.contains("AVG")) setMeanSOC(soc["AVG"].get<uint32_t>());
+            if (soc.contains("MIN")) setMinSOC(soc["MIN"].get<uint16_t>());
+            if (soc.contains("MAX")) setMaxSOC(soc["MAX"].get<uint16_t>());
+        }
+        if (payload.contains("Current") && payload["Current"].is_object()) {
+            const auto& c = payload["Current"];
+            if (c.contains("AVG")) setMeanCurrent(c["AVG"].get<int32_t>());
+            if (c.contains("MIN")) setMinCurrent(c["MIN"].get<int32_t>());
+            if (c.contains("MAX")) setMaxCurrent(c["MAX"].get<int32_t>());
+        }
+        return true;
+    }
+
+    /**
      * @brief Converts battery state to JSON.
      * @return JSON representation of the battery state.
      */

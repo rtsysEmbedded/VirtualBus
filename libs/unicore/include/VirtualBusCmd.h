@@ -7,6 +7,7 @@
 #include <chrono>
 #include <iostream>
 #include "ILogger.h"
+#include "nlohmann/json.hpp"
 
 class JsonCmdParser;
 /**
@@ -125,6 +126,38 @@ public:
      * @brief Pure virtual function to print the command details.
      */
     virtual void print() const = 0;
+
+    /**
+     * @brief Serializes this command's derived-class-specific fields to
+     * JSON, for RemoteBridge to embed as the "payload" of an outgoing
+     * envelope when forwarding this message to a remote peer.
+     *
+     * Default no-op (an empty object): every existing command type keeps
+     * compiling and behaving exactly as before without an override, and
+     * simply won't carry any payload data across a RemoteBridge until
+     * one is added.
+     *
+     * @return JSON representation of this command's payload fields.
+     */
+    virtual nlohmann::json serializePayload() const { return nlohmann::json::object(); }
+
+    /**
+     * @brief Populates this command's derived-class-specific fields from
+     * JSON produced by a peer's serializePayload(). Called by
+     * RemoteBridge on a freshly default-constructed instance of the
+     * matching CommandType (see CommandFactory), immediately after
+     * construction and before the instance is delivered locally.
+     *
+     * @param[in] payload JSON payload, as produced by the peer's
+     * serializePayload() for the same CommandType.
+     * @return True if the payload was understood and applied, false if
+     * it couldn't be (malformed/unexpected shape) -- RemoteBridge drops
+     * the message rather than delivering a partially-populated command.
+     */
+    virtual bool deserializePayload(const nlohmann::json& payload) {
+        (void)payload;
+        return true;
+    }
 
     /**
      * @brief Virtual destructor for VirtualBusCmd.

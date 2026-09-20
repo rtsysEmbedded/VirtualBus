@@ -104,6 +104,50 @@ public:
     Mode getMode() const { return mode; }
 
     /**
+     * @brief Serializes voltage/current/mode for RemoteBridge forwarding.
+     *
+     * A separate, direct field mapping from InverterCommandParser's JSON
+     * shape (which maps a "command": "StartCharging"/"StartDischarging"
+     * string, meant for an external command source) -- this one is for a
+     * lossless local round trip between two InverterCommand instances
+     * across a RemoteBridge, not for parsing an externally-authored
+     * command.
+     */
+    nlohmann::json serializePayload() const override {
+        nlohmann::json payload;
+        payload["voltage"] = voltage;
+        payload["current"] = current;
+        payload["mode"] = (mode == Mode::Charging) ? "Charging" : "Discharging";
+        return payload;
+    }
+
+    /**
+     * @brief Populates voltage/current/mode from a peer's serializePayload().
+     * @return False if "mode" is present but neither "Charging" nor
+     * "Discharging" -- malformed payload, RemoteBridge should drop it
+     * rather than deliver a command left at its default mode.
+     */
+    bool deserializePayload(const nlohmann::json& payload) override {
+        if (payload.contains("voltage") && payload["voltage"].is_number()) {
+            voltage = payload["voltage"].get<double>();
+        }
+        if (payload.contains("current") && payload["current"].is_number()) {
+            current = payload["current"].get<double>();
+        }
+        if (payload.contains("mode") && payload["mode"].is_string()) {
+            const std::string modeStr = payload["mode"].get<std::string>();
+            if (modeStr == "Charging") {
+                mode = Mode::Charging;
+            } else if (modeStr == "Discharging") {
+                mode = Mode::Discharging;
+            } else {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * @brief Prints the inverter command details.
      */
     void print() const override {
