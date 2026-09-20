@@ -1,0 +1,67 @@
+{
+  "$schema_note": "All build settings for the C++23 learning examples live here. Nothing is hardcoded in build.py or in the .cpp files themselves — add a feature by adding an entry here.",
+  "compiler": {
+    "cxx": "g++",
+    "cxx_fallback": "clang++",
+    "min_gcc_version": "13.0",
+    "min_clang_version": "17.0",
+    "common_flags": ["-Wall", "-Wextra", "-O2"]
+  },
+  "features": [
+    {
+      "id": "01-std-expected",
+      "title": "std::expected<T, E> (P0323R12)",
+      "cpp_version_new": "c++23",
+      "cpp_version_legacy": "c++17",
+      "legacy_source": "01-std-expected/examples/legacy.cpp",
+      "modern_source": "01-std-expected/examples/modern.cpp",
+      "legacy_flags": ["-std=c++17"],
+      "modern_flags": ["-std=c++23"],
+      "requires_exceptions": false
+    },
+    {
+      "id": "02-deducing-this",
+      "title": "Deducing this / explicit object parameters (P0847R7)",
+      "cpp_version_new": "c++23",
+      "cpp_version_legacy": "c++17",
+      "legacy_source": "02-deducing-this/examples/legacy.cpp",
+      "modern_source": "02-deducing-this/examples/modern.cpp",
+      "legacy_flags": ["-std=c++17"],
+      "modern_flags": ["-std=c++23"],
+      "requires_exceptions": false
+    },
+    {
+      "id": "03-std-print",
+      "title": "std::print / std::println (P2093R14)",
+      "cpp_version_new": "c++23",
+      "cpp_version_legacy": "c++17",
+      "legacy_source": "03-std-print/examples/legacy.cpp",
+      "modern_source": "03-std-print/examples/modern.cpp",
+      "legacy_flags": ["-std=c++17"],
+      "modern_flags": ["-std=c++23"],
+      "requires_exceptions": false
+    },
+    {
+      "id": "04-multidim-subscript-mdspan",
+      "title": "Multidimensional operator[] and std::mdspan (P2128R6 / P0009R18)",
+      "cpp_version_new": "c++23",
+      "cpp_version_legacy": "c++17",
+      "legacy_source": "04-multidim-subscript-mdspan/examples/legacy.cpp",
+      "modern_source": "04-multidim-subscript-mdspan/examples/modern.cpp",
+      "legacy_flags": ["-std=c++17"],
+      "modern_flags": ["-std=c++23"],
+      "requires_exceptions": false
+    },
+    {
+      "id": "05-std-generator",
+      "title": "std::generator<T> coroutine ranges (P2502R2)",
+      "cpp_version_new": "c++23",
+      "cpp_version_legacy": "c++17",
+      "legacy_source": "05-std-generator/examples/legacy.cpp",
+      "modern_source": "05-std-generator/examples/modern.cpp",
+      "legacy_flags": ["-std=c++17"],
+      "modern_flags": ["-std=c++23", "-fcoroutines"],
+      "requires_exceptions": false
+    }
+  ]
+}
